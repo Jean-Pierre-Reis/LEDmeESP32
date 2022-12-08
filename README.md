@@ -1,6 +1,6 @@
 # LEDmeESP32
 
-It's a LEDmePlay-based project from:
+It's a porting project for ESP32
 
 	www.mithotronic.de
 	Version: 1.2.1
