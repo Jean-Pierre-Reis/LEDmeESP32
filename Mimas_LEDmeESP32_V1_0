@@ -1,9 +1,10 @@
 // Mimas
-// for the LEDmePlay
+// for the LEDmeESP32 based on LEDmePlay
 //
 // www.mithotronic.de
 //
-// Version: 1.2.1
+// Version: 1.0
+// Refactored by Jean-Pierre
 // Author: Michael Rosskopf (2014)
 // 
 // Thanks to Thomas Laubach!
@@ -19,138 +20,22 @@
 // V1.0.2: Random strange effects (caused by a wrong memory access) fixed
 // V1.0.1: First release
 
-// Include libraries for adafruit matrix
-#include <Adafruit_GFX.h>   // Core graphics library
-#include <RGBmatrixPanel.h> // Hardware-specific library
+// Include libraries
+#include <Arduino.h>
+#include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
+#include <Ps3Controller.h>
+#include <Tone32.h>
 
-// Setup adafruit matrix
-#define CLK 50
-#define OE  51
-#define LAT 10
-#define A   A0
-#define B   A1
-#define C   A2
-#define D   A3
-RGBmatrixPanel matrix(A, B, C, D, CLK, LAT, OE, false);
+// Setup matrix
+#define PANEL_RES_X 64      // Number of pixels wide of each INDIVIDUAL panel module. 
+#define PANEL_RES_Y 32     // Number of pixels tall of each INDIVIDUAL panel module.
+#define PANEL_CHAIN 1      // Total number of panels chained one to another
 
-// Audio out
-int audio = 2;
+// Setup audio out
+#define BUZZER_PIN 2
+#define BUZZER_CHANNEL 0
 
-// Define notes
-#define NOTE_B0  31
-#define NOTE_C1  33
-#define NOTE_CS1 35
-#define NOTE_D1  37
-#define NOTE_DS1 39
-#define NOTE_E1  41
-#define NOTE_F1  44
-#define NOTE_FS1 46
-#define NOTE_G1  49
-#define NOTE_GS1 52
-#define NOTE_A1  55
-#define NOTE_AS1 58
-#define NOTE_B1  62
-#define NOTE_C2  65
-#define NOTE_CS2 69
-#define NOTE_D2  73
-#define NOTE_DS2 78
-#define NOTE_E2  82
-#define NOTE_F2  87
-#define NOTE_FS2 93
-#define NOTE_G2  98
-#define NOTE_GS2 104
-#define NOTE_A2  110
-#define NOTE_AS2 117
-#define NOTE_B2  123
-#define NOTE_C3  131
-#define NOTE_CS3 139
-#define NOTE_D3  147
-#define NOTE_DS3 156
-#define NOTE_E3  165
-#define NOTE_F3  175
-#define NOTE_FS3 185
-#define NOTE_G3  196
-#define NOTE_GS3 208
-#define NOTE_A3  220
-#define NOTE_AS3 233
-#define NOTE_B3  247
-#define NOTE_C4  262
-#define NOTE_CS4 277
-#define NOTE_D4  294
-#define NOTE_DS4 311
-#define NOTE_E4  330
-#define NOTE_F4  349
-#define NOTE_FS4 370
-#define NOTE_G4  392
-#define NOTE_GS4 415
-#define NOTE_A4  440
-#define NOTE_AS4 466
-#define NOTE_B4  494
-#define NOTE_C5  523
-#define NOTE_CS5 554
-#define NOTE_D5  587
-#define NOTE_DS5 622
-#define NOTE_E5  659
-#define NOTE_F5  698
-#define NOTE_FS5 740
-#define NOTE_G5  784
-#define NOTE_GS5 831
-#define NOTE_A5  880
-#define NOTE_AS5 932
-#define NOTE_B5  988
-#define NOTE_C6  1047
-#define NOTE_CS6 1109
-#define NOTE_D6  1175
-#define NOTE_DS6 1245
-#define NOTE_E6  1319
-#define NOTE_F6  1397
-#define NOTE_FS6 1480
-#define NOTE_G6  1568
-#define NOTE_GS6 1661
-#define NOTE_A6  1760
-#define NOTE_AS6 1865
-#define NOTE_B6  1976
-#define NOTE_C7  2093
-#define NOTE_CS7 2217
-#define NOTE_D7  2349
-#define NOTE_DS7 2489
-#define NOTE_E7  2637
-#define NOTE_F7  2794
-#define NOTE_FS7 2960
-#define NOTE_G7  3136
-#define NOTE_GS7 3322
-#define NOTE_A7  3520
-#define NOTE_AS7 3729
-#define NOTE_B7  3951
-#define NOTE_C8  4186
-#define NOTE_CS8 4435
-#define NOTE_D8  4699
-#define NOTE_DS8 4978
-
-// Joystick 1
-int buttonU1 = 30;
-int buttonD1 = 32;
-int buttonL1 = 34;
-int buttonR1 = 36;
-int buttonFire1 = 38;
-int analogX1 = 8;
-int analogY1 = 9;
-
-// Joystick 2
-int buttonU2 = 31;
-int buttonD2 = 33;
-int buttonL2 = 35;
-int buttonR2 = 37;
-int buttonFire2 = 39;
-int analogX2 = 10;
-int analogY2 = 11;
-
-// Sensitivity of analog thumb joysticks (of the LEDmePlay Joypad) in case of "digital usage" (detects movement if deviates from center position value of 512 by sensitivity value)
-const int sensitivity = 192;
-
-// Other buttons
-int buttonReset = 42;
-int buttonPause = 43;
+MatrixPanel_I2S_DMA *dma_display = nullptr;
 
 // Enemy ships and bases
 byte numberOfEnemies = 10;        // Number of enemies on the screen
@@ -192,6 +77,11 @@ double enemyShotVectorY[10];        // Movement of shot in y-direction
 byte enemyShotCounter;              // Index of the next fired shot in the different arrays containing the shot values (enemyShotX[], enemyShotY[] etc.)
 
 // Ship and shots
+int rX;
+int rY;
+int lX;
+int lY;
+int r1;
 byte shipX;                    // x-position of player´s ship
 byte shipY;                    // y-position of player´s ship
 byte numberOfShots = 64;       // Number of fired shots on the screen
@@ -214,7 +104,7 @@ double powerUpY;       // y-position of power-up
 byte powerUpType;      // 0 == Shot extension (violett), 1 == Shield (blue), 2 == Smart bomb (green), 3 == Extra life (red)
 
 // Playfield (42 * 42 to have a 5 pixel border around the visible playfield)
-byte playfield[42][42];
+byte playfield[74][42];
 
 // Level settings
 byte level;               // Current level
@@ -233,9 +123,9 @@ boolean endBossDestroyed; // true if end boss destroyed -> Jump to the next leve
 float starX[24];         // x position of background star (Level 1)
 float starY[24];         // y position of background star (Level 1)
 float starSpeed[24];     // Speed of background star (Level 1)
-int ceiling[32];         // y-positions of the ceiling of the visible level part
-int ground[32];          // y-positions of the ground of the visible level part
-byte scrollPointer = 31; // Index position in ceiling and ground array for the next screen element scrolling into the screen
+int ceiling[64];         // y-positions of the ceiling of the visible level part
+int ground[64];          // y-positions of the ground of the visible level part
+byte scrollPointer = 63; // Index position in ceiling and ground array for the next screen element scrolling into the screen
 int newCeiling = 0;      // Helper for y-positions of next ceiling element
 int newGround= 0;        // Helper for y-positions of next ground element
 
@@ -262,19 +152,7 @@ boolean joy1Right();
 float joy1XValue();
 float joy1YValue();
 boolean joy1Fire();
-boolean joy1FireA();
-boolean joy1FireB();
-boolean joy1IsLEDmePlayJoypad();
-boolean joy2Up();
-boolean joy2Down();
-boolean joy2Left();
-boolean joy2Right();
-float joy2XValue();
-float joy2YValue();
-boolean joy2Fire();
-boolean joy2FireA();
-boolean joy2FireB();
-boolean joy2IsLEDmePlayJoypad();
+
 void drawM(int x, int y);
 void drawT(int x, int y);
 void mithotronic();
@@ -308,39 +186,32 @@ void loop();
 
 void setup() 
 {
-  // Initialize serial connection
-  Serial.begin(9600);
+  Serial.begin(115200);
+  Ps3.begin("01:02:03:04:05:06");
+  Serial.println("Ready.");
+  
+  // Module configuration
+  HUB75_I2S_CFG mxconfig(
+    PANEL_RES_X,   // module width
+    PANEL_RES_Y,   // module height
+    PANEL_CHAIN    // Chain length
+  );
+
+  mxconfig.gpio.e = 18;
+  mxconfig.clkphase = false;
+  mxconfig.driver = HUB75_I2S_CFG::FM6126A;
+
+  // Display Setup
+  // Initialize matrix and define text mode
+  dma_display = new MatrixPanel_I2S_DMA(mxconfig);
+  dma_display->begin();
+  dma_display->setTextSize(1);
+  dma_display->setTextWrap(false);
+  dma_display->setBrightness8(90); //0-255
+  dma_display->clearScreen();
 
   // Initialize random number generator
   randomSeed(analogRead(5));
-
-  // Initialize joysticks and  buttons
-  pinMode(buttonL1, INPUT);     
-  pinMode(buttonR1, INPUT);     
-  pinMode(buttonU1, INPUT);     
-  pinMode(buttonD1, INPUT);     
-  pinMode(buttonFire1, INPUT);     
-  pinMode(buttonL2, INPUT);     
-  pinMode(buttonR2, INPUT);     
-  pinMode(buttonU2, INPUT);     
-  pinMode(buttonD2, INPUT);     
-  pinMode(buttonFire2, INPUT);     
-  pinMode(buttonReset, INPUT);     
-  pinMode(buttonPause, INPUT);    
-
-  // Activate internal pull-up resistors 
-  digitalWrite(buttonL1, HIGH);
-  digitalWrite(buttonR1, HIGH);
-  digitalWrite(buttonU1, HIGH);
-  digitalWrite(buttonD1, HIGH);
-  digitalWrite(buttonFire1, HIGH);
-  digitalWrite(buttonL2, HIGH);
-  digitalWrite(buttonR2, HIGH);
-  digitalWrite(buttonU2, HIGH);
-  digitalWrite(buttonD2, HIGH);
-  digitalWrite(buttonFire2, HIGH);
-  digitalWrite(buttonReset, HIGH);
-  digitalWrite(buttonPause, HIGH);
 
   // Setup ship
   shipX = 4;
@@ -352,89 +223,129 @@ void setup()
   // Set highest level reached to 1
   maxLevelReached = 1;
 
-  // Initialize matrix and define text mode
-  matrix.begin();
-  matrix.setTextSize(1);
-  matrix.setTextWrap(false);
-
   // Enter the game loop
   loop();
 }
-
+/*
 // Joystick inquiry (allows to use a classic joystick or a LEDmePlay Joypad without any configuration)
 boolean joy1Up()
 {
-  if((digitalRead(buttonU1) == LOW && digitalRead(buttonD1) != LOW) || (digitalRead(buttonL1) == LOW && digitalRead(buttonR1) == LOW && analogRead(analogY1) > (512 + sensitivity))){ return true; }
-  return false;
+  if( Ps3.event.button_down.up ){
+        Serial.println("Started pressing the up button");
+        return true;
+  }else{
+        return false;
+  }
 }
 boolean joy1Down()
 {
-  if((digitalRead(buttonD1) == LOW && digitalRead(buttonU1) != LOW) || (digitalRead(buttonL1) == LOW && digitalRead(buttonR1) == LOW && analogRead(analogY1) < (512 - sensitivity))){ return true; }
-  return false;
+  if( Ps3.event.button_down.down ){
+        Serial.println("Started pressing the down button");
+        return true;
+  }else{
+        return false;
+  }
 }
 boolean joy1Left()
 {
-  if((digitalRead(buttonL1) == LOW && digitalRead(buttonR1) != LOW) || (digitalRead(buttonL1) == LOW && digitalRead(buttonR1) == LOW && analogRead(analogX1) > (512 + sensitivity))){ return true; }
-  return false;
+  if( Ps3.event.button_down.left ){
+        Serial.println("Started pressing the left button");
+        return true;
+  }else{
+        return false;
+  }
 }
 boolean joy1Right()
 {
-  if((digitalRead(buttonR1) == LOW && digitalRead(buttonL1) != LOW) || (digitalRead(buttonL1) == LOW && digitalRead(buttonR1) == LOW && analogRead(analogX1) < (512 - sensitivity))){ return true; }
-  return false;
+  if( Ps3.event.button_down.right ){
+        Serial.println("Started pressing the right button");
+        return true;
+  }else{
+        return false;
+  }
 }
 boolean joy1Fire()
 {
-  if(digitalRead(buttonFire1) == LOW || (digitalRead(buttonU1) == LOW && digitalRead(buttonD1) == LOW)){ return true; }
-  return false;
+  if( Ps3.event.button_down.triangle ){
+        Serial.println("Started pressing the triangle button");
+        return true;
+  }
+        return false;
 }
-boolean joy2Up()
-{
-  if((digitalRead(buttonU2) == LOW && digitalRead(buttonD2) != LOW) || (digitalRead(buttonL2) == LOW && digitalRead(buttonR2) == LOW && analogRead(analogY2) > (512 + sensitivity))){ return true; }
-  return false;
+*/
+boolean joy1Up(){
+    if( Ps3.event.button_down.up ){
+        Serial.println("Started pressing the up button");
+        return true;
+    }
+    if( Ps3.event.button_up.up ){
+        Serial.println("Released the up button");
+        return false;
+    }
 }
-boolean joy2Down()
-{
-  if((digitalRead(buttonD2) == LOW && digitalRead(buttonU2) != LOW) || (digitalRead(buttonL2) == LOW && digitalRead(buttonR2) == LOW && analogRead(analogY2) < (512 - sensitivity))){ return true; }
-  return false;
+boolean joy1Down(){
+    if( Ps3.event.button_down.down ){
+        Serial.println("Started pressing the down button");
+        return true;
+    }
+    if( Ps3.event.button_up.down ){
+        Serial.println("Released the down button");
+        return false;
+    }
 }
-boolean joy2Left()
-{
-  if((digitalRead(buttonL2) == LOW && digitalRead(buttonR2) != LOW) || (digitalRead(buttonL2) == LOW && digitalRead(buttonR2) == LOW && analogRead(analogX2) > (512 + sensitivity))){ return true; }
-  return false;
+boolean joy1Right(){
+    if( Ps3.event.button_down.right ){
+        Serial.println("Started pressing the right button");
+        return true;
+    }
+    if( Ps3.event.button_up.right ){
+        Serial.println("Released the right button");
+        return false;
+    }
 }
-boolean joy2Right()
-{
-  if((digitalRead(buttonR2) == LOW && digitalRead(buttonL2) != LOW) || (digitalRead(buttonL2) == LOW && digitalRead(buttonR2) == LOW && analogRead(analogX2) < (512 - sensitivity))){ return true; }
-  return false;
+boolean joy1Left(){
+    if( Ps3.event.button_down.left ){
+        Serial.println("Started pressing the left button");
+        return true;
+    }
+    if( Ps3.event.button_up.left ){
+        Serial.println("Released the left button");
+        return false;
+    }
 }
-boolean joy2Fire()
-{
-  if(digitalRead(buttonFire2) == LOW || (digitalRead(buttonU2) == LOW && digitalRead(buttonD2) == LOW)){ return true; }
-  return false;
+boolean joy1Fire(){
+    if( Ps3.event.button_down.r1 ){
+        Serial.println("Started pressing the right shoulder button");
+        return true;
+    }
+    if( Ps3.event.button_up.r1 ){
+        Serial.println("Released the right shoulder button");
+        return false;
+    }
 }
-
+        
 // Draw the M of the Mithotronic logo
 void drawM(int x, int y)
 {
-  matrix.fillRect(x + 2, y + 2, 6, 1, matrix.Color333(0, 0, 0));
-  matrix.fillRect(x, y + 3, 10, 1, matrix.Color333(0, 0, 0));
+  dma_display->fillRect(x + 2, y + 2, 6, 1, dma_display->color565(0, 0, 0));
+  dma_display->fillRect(x, y + 3, 10, 1, dma_display->color565(0, 0, 0));
 
-  matrix.fillRect(x, y + 4, 2, 6, matrix.Color333(3, 3, 3));
-  matrix.fillRect(x + 2, y + 3, 2, 2, matrix.Color333(3, 3, 3));
-  matrix.fillRect(x + 4, y + 4, 2, 6, matrix.Color333(3, 3, 3));
-  matrix.fillRect(x + 6, y + 3, 2, 2, matrix.Color333(3, 3, 3));
-  matrix.fillRect(x + 8, y + 4, 2, 6, matrix.Color333(3, 3, 3));
+  dma_display->fillRect(x, y + 4, 2, 6, dma_display->color565(109, 109, 109));
+  dma_display->fillRect(x + 2, y + 3, 2, 2, dma_display->color565(109, 109, 109));
+  dma_display->fillRect(x + 4, y + 4, 2, 6, dma_display->color565(109, 109, 109));
+  dma_display->fillRect(x + 6, y + 3, 2, 2, dma_display->color565(109, 109, 109));
+  dma_display->fillRect(x + 8, y + 4, 2, 6, dma_display->color565(109, 109, 109));
 }
 
 // Draw the T of the Mithotronic logo
 void drawT(int x, int y)
 {
-  matrix.fillRect(x, y + 5, 6, 1, matrix.Color333(0, 0, 0));
-  matrix.fillRect(x + 2, y + 10, 3, 1, matrix.Color333(0, 0, 0));
+  dma_display->fillRect(x, y + 5, 6, 1, dma_display->color565(0, 0, 0));
+  dma_display->fillRect(x + 2, y + 10, 3, 1, dma_display->color565(0, 0, 0));
 
-  matrix.fillRect(x, y + 3, 6, 2, matrix.Color333(0, 0, 7));
-  matrix.fillRect(x + 2, y, 2, 10, matrix.Color333(0, 0, 7));
-  matrix.fillRect(x + 4, y + 8, 1, 2, matrix.Color333(0, 0, 7));
+  dma_display->fillRect(x, y + 3, 6, 2, dma_display->color565(0, 0, 255));
+  dma_display->fillRect(x + 2, y, 2, 10, dma_display->color565(0, 0, 255));
+  dma_display->fillRect(x + 4, y + 8, 1, 2, dma_display->color565(0, 0, 255));
 }
 
 // Draw the animated Mithotronic logo and play jingle
@@ -450,24 +361,23 @@ void mithotronic()
   }
   while(i <= 11);
 
-  // Jingle on start screen
-  tone(audio,NOTE_C4,200);
+  tone(BUZZER_PIN,NOTE_C4,200, BUZZER_CHANNEL);
   delay(400+20);
-  tone(audio,NOTE_C4,90);
+  tone(BUZZER_PIN,NOTE_C4,90, BUZZER_CHANNEL);
   delay(200-20);
-  tone(audio,NOTE_G4,140);
+  tone(BUZZER_PIN,NOTE_G4,140, BUZZER_CHANNEL);
   delay(400+20);
-  tone(audio,NOTE_G4,140);
+  tone(BUZZER_PIN,NOTE_G4,140, BUZZER_CHANNEL);
   delay(200-20);
-  tone(audio,NOTE_C5,450);
+  tone(BUZZER_PIN,NOTE_C5,450, BUZZER_CHANNEL);
   delay(600);
-  tone(audio,NOTE_AS4,140);
+  tone(BUZZER_PIN,NOTE_AS4,140, BUZZER_CHANNEL);
   delay(200-20);
-  tone(audio,NOTE_A4,130);
+  tone(BUZZER_PIN,NOTE_A4,130, BUZZER_CHANNEL);
   delay(200-10);
-  tone(audio,NOTE_F4,120);
+  tone(BUZZER_PIN,NOTE_F4,120, BUZZER_CHANNEL);
   delay(200);
-  tone(audio,NOTE_G4,1000);
+  tone(BUZZER_PIN,NOTE_G4,1000, BUZZER_CHANNEL);
   delay(3000);
 }
 
@@ -477,31 +387,31 @@ void setLEDMePlayColor(int i)
   switch(i % 9)
   {
     case 0:
-    matrix.setTextColor(matrix.Color333(5,0,0));
+    dma_display->setTextColor(dma_display->color565(182,0,0));
     break;
     case 1:
-    matrix.setTextColor(matrix.Color333(5,2,0));
+    dma_display->setTextColor(dma_display->color565(182,72,0));
     break;
     case 2:
-    matrix.setTextColor(matrix.Color333(2,5,0));
+    dma_display->setTextColor(dma_display->color565(72,182,0));
     break;
     case 3:
-    matrix.setTextColor(matrix.Color333(0,5,0));
+    dma_display->setTextColor(dma_display->color565(0,182,0));
     break;
     case 4:
-    matrix.setTextColor(matrix.Color333(0,5,2));
+    dma_display->setTextColor(dma_display->color565(0,182,72));
     break;
     case 5:
-    matrix.setTextColor(matrix.Color333(0,2,5));
+    dma_display->setTextColor(dma_display->color565(0,72,182));
     break;
     case 6:
-    matrix.setTextColor(matrix.Color333(0,0,5));
+    dma_display->setTextColor(dma_display->color565(0,0,182));
     break;
     case 7:
-    matrix.setTextColor(matrix.Color333(2,0,5));
+    dma_display->setTextColor(dma_display->color565(72,0,182));
     break;
     case 8:
-    matrix.setTextColor(matrix.Color333(5,0,2));
+    dma_display->setTextColor(dma_display->color565(182,0,72));
     break;
   }
 }
@@ -510,41 +420,41 @@ void setLEDMePlayColor(int i)
 void ledMePlay()
 {
   // Clear screen
-  matrix.fillScreen(matrix.Color333(0, 0, 0));
+  dma_display->fillScreen(dma_display->color565(0, 0, 0));
 
-  byte i = 0;
+  int i = 0;
   do
   {
     // Write 'LEDmePlay'
     setLEDMePlayColor(i++);
-    matrix.setCursor(7, 5);
-    matrix.println("L");
+    dma_display->setCursor(7, 5);
+    dma_display->println("L");
     setLEDMePlayColor(i++);
-    matrix.setCursor(13, 5);
-    matrix.println("E");
+    dma_display->setCursor(13, 5);
+    dma_display->println("E");
     setLEDMePlayColor(i++);
-    matrix.setCursor(19, 5);
-    matrix.println("D");
+    dma_display->setCursor(19, 5);
+    dma_display->println("D");
 
     setLEDMePlayColor(i++);
-    matrix.setCursor(10, 11);
-    matrix.println("m");
+    dma_display->setCursor(10, 11);
+    dma_display->println("m");
     setLEDMePlayColor(i++);
-    matrix.setCursor(16, 11);
-    matrix.println("e");
+    dma_display->setCursor(16, 11);
+    dma_display->println("e");
 
     setLEDMePlayColor(i++);
-    matrix.setCursor(4, 19);
-    matrix.println("P");
+    dma_display->setCursor(4, 19);
+    dma_display->println("P");
     setLEDMePlayColor(i++);
-    matrix.setCursor(10, 19);
-    matrix.println("l");
+    dma_display->setCursor(10, 19);
+    dma_display->println("l");
     setLEDMePlayColor(i++);
-    matrix.setCursor(16, 19);
-    matrix.println("a");
+    dma_display->setCursor(16, 19);
+    dma_display->println("a");
     setLEDMePlayColor(i++);
-    matrix.setCursor(22, 19);
-    matrix.println("y");
+    dma_display->setCursor(22, 19);
+    dma_display->println("y");
     
     i++;
     if(i > 81)
@@ -558,27 +468,30 @@ void ledMePlay()
       j++;
       delay(1);
     }
-    while(j < 250 && !joy1Fire() && !joy2Fire());
+    while(j < 250 && Ps3.event.button_down.triangle != LOW);
+    //&& digitalRead(buttonFire2) != LOW);
   }
-  while(!joy1Fire() && !joy2Fire());
-  tone(audio,1024,20);
+  while(Ps3.event.button_down.triangle != LOW);
+  //&& digitalRead(buttonFire2) != LOW);
+  tone(BUZZER_PIN,1024,20, BUZZER_CHANNEL);
   delay(200);
-  matrix.fillRect(0, 0, 32, 32, matrix.Color333(0,0,0));
+  dma_display->fillRect(0, 0, 32, 32, dma_display->color565(0,0,0));
+ 
 }
 
 // Draw title screen
 void title()
 {
   // Clear screen
-  matrix.fillScreen(matrix.Color333(0, 0, 0));
+  dma_display->fillScreen(dma_display->color565(0, 0, 0));
 
   // Write 'MIMAS'
-  matrix.setCursor(1, 2);
-  matrix.setTextColor(matrix.Color333(0,0,3));
-  matrix.println("MIMAS");
+  dma_display->setCursor(1, 2);
+  dma_display->setTextColor(dma_display->color565(0,0,109));
+  dma_display->println("MIMAS");
 
   // Line blow text
-  matrix.drawLine(1, 10, 30, 10, matrix.Color333(3,3,0));
+  dma_display->drawLine(1, 10, 30, 10, dma_display->color565(109,109,0));
 
   // Flip between title screen and high score
   int i = 0;
@@ -587,27 +500,27 @@ void title()
     if(i == 0)
     {
       // Draw random stars
-      matrix.fillRect(0, 11, 32, 21, matrix.Color333(0,0,0));
+      dma_display->fillRect(0, 11, 32, 21, dma_display->color565(0,0,0));
       for(i = 0; i < 24; i++)
       {
-        matrix.drawPixel(random(32), random(20) + 12, matrix.Color333(1, 1, 3));
+        dma_display->drawPixel(random(32), random(20) + 12, dma_display->color565(36, 36, 109));
       }
 
       // Draw moon Mimas
-      matrix.fillCircle(16, 21, 8, matrix.Color333(0,0,0)); 
-      matrix.drawCircle(16, 21, 8, matrix.Color333(0,0,3)); 
-      matrix.drawCircle(15, 18, 3, matrix.Color333(0,0,3));
+      dma_display->fillCircle(16, 21, 8, dma_display->color565(0,0,0)); 
+      dma_display->drawCircle(16, 21, 8, dma_display->color565(0,0,109)); 
+      dma_display->drawCircle(15, 18, 3, dma_display->color565(0,0,109));
     }
     if(i == 4000)
     {
       // Show highscore
-      matrix.fillRect(0, 11, 32, 21, matrix.Color333(0,0,0));
-      matrix.setTextColor(matrix.Color333(3,3,0));
-      matrix.setCursor(1, 14);
-      matrix.println("HiScr");
-      matrix.setTextColor(matrix.Color333(0,0,3));
-      matrix.setCursor(1, 22);
-      matrix.println(highScore);    
+      dma_display->fillRect(0, 11, 32, 21, dma_display->color565(0,0,0));
+      dma_display->setTextColor(dma_display->color565(109,109,0));
+      dma_display->setCursor(1, 14);
+      dma_display->println("HiScr");
+      dma_display->setTextColor(dma_display->color565(0,0,109));
+      dma_display->setCursor(1, 22);
+      dma_display->println(highScore);    
     }
     random(100); // Draw random numbers for random gameplay
     i++;
@@ -618,34 +531,34 @@ void title()
     }
   }
   while(!joy1Fire()); 
-  tone(audio,1024,20);
+  tone(BUZZER_PIN,1024,20, BUZZER_CHANNEL);
 }
 
 // Draw dialog to select the difficulty
 void selectDifficulty()
 {
   // Clear screen
-  matrix.fillScreen(matrix.Color333(0, 0, 0));
+  dma_display->fillScreen(dma_display->color565(0, 0, 0));
 
   // Write text
-  matrix.setTextColor(matrix.Color333(0,0,3));
-  matrix.setCursor(1, 0);
-  matrix.println("Diff:");
+  dma_display->setTextColor(dma_display->color565(0,0,109));
+  dma_display->setCursor(1, 0);
+  dma_display->println("Diff:");
   delay(200);
-  matrix.setCursor(7, 8);
-  matrix.println("Easy");
-  matrix.setCursor(7, 16);
-  matrix.println("Norm");
-  matrix.setCursor(7, 24);
-  matrix.println("Hard");
+  dma_display->setCursor(7, 8);
+  dma_display->println("Easy");
+  dma_display->setCursor(7, 16);
+  dma_display->println("Norm");
+  dma_display->setCursor(7, 24);
+  dma_display->println("Hard");
 
   // Select difficulty by moving joystick up and down
   difficulty = 2;
-  matrix.setTextColor(matrix.Color333(3,3,0));
+  dma_display->setTextColor(dma_display->color565(109,109,0));
   do
   {
-    matrix.setCursor(1, 8 * difficulty);
-    matrix.println(">");
+    dma_display->setCursor(1, 8 * difficulty);
+    dma_display->println(">");
     if(joy1Up())
     {
       difficulty--;
@@ -655,10 +568,10 @@ void selectDifficulty()
       }
       else
       {
-        tone(audio,1024,20);
+        tone(BUZZER_PIN,1024,20, BUZZER_CHANNEL);
       }
       delay(200);
-      matrix.fillRect(2, 8, 4, 23, matrix.Color333(0, 0, 0));
+      dma_display->fillRect(2, 8, 4, 23, dma_display->color565(0, 0, 0));
     }
     if(joy1Down())
     {
@@ -669,57 +582,57 @@ void selectDifficulty()
       }
       else
       {
-        tone(audio,1024,20);
+        tone(BUZZER_PIN,1024,20, BUZZER_CHANNEL);
       }
       delay(200);
-      matrix.fillRect(2, 8, 4, 23, matrix.Color333(0, 0, 0));
+      dma_display->fillRect(2, 8, 4, 23, dma_display->color565(0, 0, 0));
     }
   }
   while(!joy1Fire());     
-  tone(audio,1024,20);
+  tone(BUZZER_PIN,1024,20, BUZZER_CHANNEL);
 }
 
 void selectLevel()
 {
   // Clear screen
-  matrix.fillScreen(matrix.Color333(0, 0, 0));
+  dma_display->fillScreen(dma_display->color565(0, 0, 0));
 
   // Write text
-  matrix.setTextColor(matrix.Color333(0,0,3));
-  matrix.setCursor(7, 0);
-  matrix.println("Set");
-  matrix.setCursor(7, 8);
-  matrix.println("Lvl");
-  matrix.setTextColor(matrix.Color333(3,3,0));
-  matrix.setCursor(7, 16);
-  matrix.println("< >");
+  dma_display->setTextColor(dma_display->color565(0,0,109));
+  dma_display->setCursor(7, 0);
+  dma_display->println("Set");
+  dma_display->setCursor(7, 8);
+  dma_display->println("Lvl");
+  dma_display->setTextColor(dma_display->color565(109,109,0));
+  dma_display->setCursor(7, 16);
+  dma_display->println("< >");
   delay(200);
 
   // Select level by moving joystick left and right
   level = 1;
-  matrix.setTextColor(matrix.Color333(1,1,3));
+  dma_display->setTextColor(dma_display->color565(36,36,109));
   do
   {
-    matrix.setCursor(1, 24);
+    dma_display->setCursor(1, 24);
     switch(level)
     {
     case 1:
-      matrix.println("Space");
+      dma_display->println("Space");
       break;
     case 2:
-      matrix.println("Ocean");
+      dma_display->println("Ocean");
       break;
     case 3:
-      matrix.println("Hills");
+      dma_display->println("Hills");
       break;
     case 4:
-      matrix.println("Rocks");
+      dma_display->println("Rocks");
       break;
     case 5:
-      matrix.println("Caves");
+      dma_display->println("Caves");
       break;
     case 6:
-      matrix.println("Core");
+      dma_display->println("Core");
       break;
     }
 
@@ -732,8 +645,8 @@ void selectLevel()
       }
       else
       {
-        tone(audio,1024,20);
-        matrix.fillRect(0, 24, 32, 8, matrix.Color333(0, 0, 0));
+        tone(BUZZER_PIN,1024,20, BUZZER_CHANNEL);
+        dma_display->fillRect(0, 24, 32, 8, dma_display->color565(0, 0, 0));
       }
       delay(200);
     }
@@ -747,20 +660,20 @@ void selectLevel()
       }
       else
       {
-        tone(audio,1024,20);
-        matrix.fillRect(0, 24, 32, 8, matrix.Color333(0, 0, 0));
+        tone(BUZZER_PIN,1024,20, BUZZER_CHANNEL);
+        dma_display->fillRect(0, 24, 32, 8, dma_display->color565(0, 0, 0));
       }
       delay(200);
     }
   }
   while(!joy1Fire());     
-  tone(audio,1024,20);  
+  tone(BUZZER_PIN,1024,20, BUZZER_CHANNEL);
 }
 
 // Setup a new game by initializing different counters
 void setupGame()
 {
-  level = 1;
+  level = 3;
   
   // Enable level selection if level > 1 has been reached before
   if(maxLevelReached > 1)
@@ -777,10 +690,10 @@ void setupGame()
 // Setup a level by initializing different counters
 void setupLevel()
 { 
-  matrix.fillScreen(matrix.Color333(0, 0, 0));
+  dma_display->fillScreen(dma_display->color565(0, 0, 0));
 
   // Initialize playfield
-  for(byte i = 0; i < 42; i++)
+  for(byte i = 0; i < 74; i++)
   {
     for(byte j = 0; j < 42; j++)
     {
@@ -811,7 +724,7 @@ void setupLevel()
       ceiling[i] = -2;
       ground[i] = 28;
     }
-    matrix.fillRect(0, 28, 32, 4, matrix.Color333(0, 0, 3));
+    dma_display->fillRect(0, 28, 32, 4, dma_display->color565(0, 0, 109));
   }
 
   // Level 3: Hills (Ground is the surface)
@@ -821,7 +734,7 @@ void setupLevel()
       ceiling[i] = -2;
       ground[i] = 24;
     }
-    matrix.fillRect(0, 24, 32, 8, matrix.Color333(0, 1, 0));
+    dma_display->fillRect(0, 24, 32, 8, dma_display->color565(0, 36, 0));
   }
 
   // Level 4: Rocks (Ground is the surface)
@@ -831,7 +744,7 @@ void setupLevel()
       ceiling[i] = -2;
       ground[i] = 24;
     }
-    matrix.fillRect(0, 24, 32, 8, matrix.Color333(1, 1, 0));
+    dma_display->fillRect(0, 24, 32, 8, dma_display->color565(36, 36, 0));
   }
 
   // Level 5: Caves (Ceiling and ground)
@@ -841,8 +754,8 @@ void setupLevel()
       ceiling[i] = 3;
       ground[i] = 28;
     }
-    matrix.fillRect(0, 0, 32, 4, matrix.Color333(0, 0, 1));
-    matrix.fillRect(0, 28, 32, 4, matrix.Color333(0, 0, 1));
+    dma_display->fillRect(0, 0, 32, 4, dma_display->color565(0, 0, 36));
+    dma_display->fillRect(0, 28, 32, 4, dma_display->color565(0, 0, 36));
   }
 
   // Level 6: Caves (Ceiling and ground but less space than in level 5)
@@ -852,8 +765,8 @@ void setupLevel()
       ceiling[i] = 7;
       ground[i] = 24;
     }
-    matrix.fillRect(0, 0, 32, 8, matrix.Color333(1, 0, 0));
-    matrix.fillRect(0, 24, 32, 8, matrix.Color333(1, 0, 0));
+    dma_display->fillRect(0, 0, 32, 8, dma_display->color565(36, 0, 0));
+    dma_display->fillRect(0, 24, 32, 8, dma_display->color565(36, 0, 0));
   }
 
   // Set all enemy counter to 0
@@ -1291,7 +1204,7 @@ void initializeEnemy(byte i, byte _ememyType)
   // Meteoroid
   if(enemyType[i] == 1)
   {
-    enemyX[i] = 32;
+    enemyX[i] = 64;
     enemyY[i] = random(32);
     enemyWidth[i] = 2;
     enemyHeight[i] = 2;
@@ -1312,7 +1225,7 @@ void initializeEnemy(byte i, byte _ememyType)
     }
     else
     {
-      enemyX[i] = 32;
+      enemyX[i] = 64;
       enemyY[i] = random(28) - 2;
     }
     enemyWidth[i] = 2;
@@ -1327,7 +1240,7 @@ void initializeEnemy(byte i, byte _ememyType)
   // Fighter
   if(enemyType[i] == 3)
   {
-    enemyX[i] = 32;
+    enemyX[i] = 64;
     enemyY[i] = random(18);
     enemyWidth[i] = 3;
     enemyHeight[i] = 3;
@@ -1341,7 +1254,7 @@ void initializeEnemy(byte i, byte _ememyType)
   // Tower
   if(enemyType[i] == 4)
   {
-    enemyX[i] = 32;
+    enemyX[i] = 64;
     enemyY[i] = ground[scrollPointer] - 2;
     enemyWidth[i] = 3;
     enemyHeight[i] = 2;
@@ -1355,7 +1268,7 @@ void initializeEnemy(byte i, byte _ememyType)
   // Killer Satellite
   if(enemyType[i] == 5)
   {
-    enemyX[i] = 32;
+    enemyX[i] = 64;
     enemyY[i] = random(28) - 2;
     enemyWidth[i] = 3;
     enemyHeight[i] = 3;
@@ -1369,7 +1282,7 @@ void initializeEnemy(byte i, byte _ememyType)
   // Cruise Missile
   if(enemyType[i] == 6)
   {
-    enemyX[i] = 32;
+    enemyX[i] = 64;
     enemyY[i] = random((ground[scrollPointer] - 1) - (ceiling[scrollPointer] + 1)) + ceiling[scrollPointer] + 1;
     enemyWidth[i] = 4;
     enemyHeight[i] = 1;
@@ -1383,7 +1296,7 @@ void initializeEnemy(byte i, byte _ememyType)
   // Submarine
   if(enemyType[i] == 7)
   {
-    enemyX[i] = 32;
+    enemyX[i] = 64;
     enemyY[i] = 26;
     enemyWidth[i] = 3;
     enemyHeight[i] = 2;
@@ -1397,7 +1310,7 @@ void initializeEnemy(byte i, byte _ememyType)
   // End Boss
   if(enemyType[i] == 8)
   {
-    enemyX[i] = 32;
+    enemyX[i] = 64;
     enemyY[i] = 12;
     enemyWidth[i] = 5;
     enemyHeight[i] = 7;
@@ -1412,7 +1325,7 @@ void initializeEnemy(byte i, byte _ememyType)
   // Hanging Tower
   if(enemyType[i] == 9)
   {
-    enemyX[i] = 32;
+    enemyX[i] = 64;
     enemyY[i] = ceiling[scrollPointer] + 1;
     enemyWidth[i] = 3;
     enemyHeight[i] = 2;
@@ -1426,7 +1339,7 @@ void initializeEnemy(byte i, byte _ememyType)
   // Bouncing Drones
   if(enemyType[i] == 10)
   {
-    enemyX[i] = 32;
+    enemyX[i] = 64;
     enemyY[i] = random((ground[scrollPointer] - 3) - (ceiling[scrollPointer] + 1)) + ceiling[scrollPointer] + 1;
     enemyWidth[i] = 2;
     enemyHeight[i] = 3;
@@ -1440,7 +1353,7 @@ void initializeEnemy(byte i, byte _ememyType)
   // Jumper
   if(enemyType[i] == 11)
   {
-    enemyX[i] = 32;
+    enemyX[i] = 64;
     enemyY[i] = ground[scrollPointer] - 2;
     enemyWidth[i] = 2;
     enemyHeight[i] = 3;
@@ -1454,7 +1367,7 @@ void initializeEnemy(byte i, byte _ememyType)
   // Heavy Fighter
   if(enemyType[i] == 12)
   {
-    enemyX[i] = 32;
+    enemyX[i] = 64;
     enemyY[i] = random(ground[scrollPointer] - 3);
     enemyWidth[i] = 5;
     enemyHeight[i] = 3;
@@ -1468,7 +1381,7 @@ void initializeEnemy(byte i, byte _ememyType)
   // Bomber
   if(enemyType[i] == 13)
   {
-    enemyX[i] = 32;
+    enemyX[i] = 64;
     enemyY[i] = random(ground[scrollPointer] - 3);
     enemyWidth[i] = 4;
     enemyHeight[i] = 3;
@@ -1482,7 +1395,7 @@ void initializeEnemy(byte i, byte _ememyType)
   // Barricade
   if(enemyType[i] == 14)
   {
-    enemyX[i] = 32;
+    enemyX[i] = 64;
     enemyY[i] = random((ground[scrollPointer] - 4) - (ceiling[scrollPointer] + 1)) + ceiling[scrollPointer] + 1;
     enemyWidth[i] = 1;
     enemyHeight[i] = 4;
@@ -1496,7 +1409,7 @@ void initializeEnemy(byte i, byte _ememyType)
   // Core
   if(enemyType[i] == 15)
   {
-    enemyX[i] = 32;
+    enemyX[i] = 64;
     enemyY[i] = 12;
     enemyWidth[i] = 3;
     enemyHeight[i] = 7;
@@ -1543,10 +1456,10 @@ void moveEnemies()
       if(enemyType[i] == 1 || enemyType[i] == 2)
       {
         // Remove existing enemy
-        matrix.drawPixel(enemyX[i], enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(0, 0, 0));
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = 0;
@@ -1568,10 +1481,10 @@ void moveEnemies()
         // Draw enemy
         if(enemyStatus[i] == 1)
         {
-          matrix.drawPixel(enemyX[i], enemyY[i], matrix.Color333(5, 3, 0));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i], matrix.Color333(4, 2, 0));
-          matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(4, 2, 0));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(4, 2, 0));
+          dma_display->drawPixel(enemyX[i], enemyY[i], dma_display->color565(182, 109, 0));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i], dma_display->color565(145, 72, 0));
+          dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(145, 72, 0));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(145, 72, 0));
           playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 5)] = i + 3;
           playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 5)] = i + 3;
           playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = i + 3;
@@ -1584,10 +1497,10 @@ void moveEnemies()
       if(enemyType[i] == 3)
       {
         // Remove existing enemy
-        matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 2, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 2, dma_display->color565(0, 0, 0));
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = 0;
         playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 6)] = 0;
         playfield[byte(enemyX[i] + 7)][byte(enemyY[i] + 5)] = 0;
@@ -1617,10 +1530,10 @@ void moveEnemies()
         // Draw enemy
         if(enemyStatus[i] == 1)
         {
-          matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(0, 0, 5));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(0, 5, 0));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i], matrix.Color333(0, 1, 0));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 2, matrix.Color333(0, 1, 0));
+          dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(0, 0, 182));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(0, 182, 0));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i], dma_display->color565(0, 36, 0));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 2, dma_display->color565(0, 36, 0));
           playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = i + 3;
           playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 6)] = i + 3;
           playfield[byte(enemyX[i] + 7)][byte(enemyY[i] + 5)] = i + 3;
@@ -1632,10 +1545,10 @@ void moveEnemies()
       if(enemyType[i] == 4)
       {
         // Remove existing enemy
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 1, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 1, dma_display->color565(0, 0, 0));
         playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = 0;
         playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 6)] = 0;
@@ -1658,17 +1571,17 @@ void moveEnemies()
         {
           if(level != 5)
           {
-            matrix.drawPixel(enemyX[i] + 1, enemyY[i], matrix.Color333(0, 0, 5));
-            matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(0, 0, 1));
-            matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(0, 0, 1));
-            matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 1, matrix.Color333(0, 0, 1));
+            dma_display->drawPixel(enemyX[i] + 1, enemyY[i], dma_display->color565(0, 0, 182));
+            dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(0, 0, 36));
+            dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(0, 0, 36));
+            dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 1, dma_display->color565(0, 0, 36));
           }
           else
           {
-            matrix.drawPixel(enemyX[i] + 1, enemyY[i], matrix.Color333(0, 5, 0));
-            matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(0, 1, 0));
-            matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(0, 1, 0));
-            matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 1, matrix.Color333(0, 1, 0));
+            dma_display->drawPixel(enemyX[i] + 1, enemyY[i], dma_display->color565(0, 182, 0));
+            dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(0, 36, 0));
+            dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(0, 36, 0));
+            dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 1, dma_display->color565(0, 36, 0));
           }
           playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 5)] = i + 3;
           playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = i + 3;
@@ -1681,11 +1594,11 @@ void moveEnemies()
       if(enemyType[i] == 5)
       {
         // Remove existing enemy
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 2, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 2, dma_display->color565(0, 0, 0));
         playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = 0;
         playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 6)] = 0;
@@ -1731,14 +1644,14 @@ void moveEnemies()
         // Draw enemy
         if(enemyStatus[i] == 1)
         {
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i], matrix.Color333(1, 0, 0));
-          matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(1, 0, 0));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i], dma_display->color565(1, 0, 0));
+          dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(1, 0, 0));
           if((eventCounter % 4) == 0)
           {          
-            matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(0, 0, 7));
+            dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(0, 0, 255));
           }
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 1, matrix.Color333(1, 0, 0));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 2, matrix.Color333(1, 0, 0));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 1, dma_display->color565(1, 0, 0));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 2, dma_display->color565(1, 0, 0));
           playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 5)] = i + 3;
           playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = i + 3;
           playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 6)] = i + 3;
@@ -1751,10 +1664,10 @@ void moveEnemies()
       if(enemyType[i] == 6)
       {
         // Remove existing enemy
-        matrix.drawPixel(enemyX[i], enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 3, enemyY[i], matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 3, enemyY[i], dma_display->color565(0, 0, 0));
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 7)][byte(enemyY[i] + 5)] = 0;
@@ -1784,15 +1697,15 @@ void moveEnemies()
         // Draw enemy
         if(enemyStatus[i] == 1)
         {
-          matrix.drawPixel(enemyX[i], enemyY[i], matrix.Color333(3, 3, 3));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i], matrix.Color333(3, 3, 3));
+          dma_display->drawPixel(enemyX[i], enemyY[i], dma_display->color565(109, 109, 109));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i], dma_display->color565(109, 109, 109));
           if((eventCounter % 4) == 0)
           {          
-            matrix.drawPixel(enemyX[i] + 2, enemyY[i], matrix.Color333(7, 7, 0));
+            dma_display->drawPixel(enemyX[i] + 2, enemyY[i], dma_display->color565(255, 255, 0));
           }
           if((eventCounter % 8) == 0)
           {          
-            matrix.drawPixel(enemyX[i] + 3, enemyY[i], matrix.Color333(1, 1, 0));
+            dma_display->drawPixel(enemyX[i] + 3, enemyY[i], dma_display->color565(36, 36, 0));
           }
           playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 5)] = i + 3;
           playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 5)] = i + 3;
@@ -1805,10 +1718,10 @@ void moveEnemies()
       if(enemyType[i] == 7)
       {
         // Remove existing enemy
-        matrix.drawPixel(enemyX[i], enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 1, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 1, dma_display->color565(0, 0, 0));
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = 0;
         playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 6)] = 0;
@@ -1829,10 +1742,10 @@ void moveEnemies()
         // Draw enemy
         if(enemyStatus[i] == 1)
         {
-          matrix.drawPixel(enemyX[i], enemyY[i], matrix.Color333(0, 5, 0));
-          matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(0, 5, 0));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(0, 1, 0));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 1, matrix.Color333(0, 1, 0));
+          dma_display->drawPixel(enemyX[i], enemyY[i], dma_display->color565(0, 182, 0));
+          dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(0, 182, 0));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(0, 36, 0));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 1, dma_display->color565(0, 36, 0));
           playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 5)] = i + 3;
           playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = i + 3;
           playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 6)] = i + 3;
@@ -1844,26 +1757,26 @@ void moveEnemies()
       if(enemyType[i] == 8)
       {
         // Remove existing enemy
-        matrix.drawPixel(enemyX[i] + 3, enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 4, enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 4, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 3, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 3, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 4, enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 4, enemyY[i] + 3, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 4, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 4, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 5, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 5, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 4, enemyY[i] + 5, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 6, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 4, enemyY[i] + 6, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 3, enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 4, enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 4, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 3, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 3, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 4, enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 4, enemyY[i] + 3, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 4, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 4, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 5, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 5, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 4, enemyY[i] + 5, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 6, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 4, enemyY[i] + 6, dma_display->color565(0, 0, 0));
         playfield[byte(enemyX[i] + 8)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 9)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 7)][byte(enemyY[i] + 6)] = 0;
@@ -1919,38 +1832,38 @@ void moveEnemies()
         if(enemyStatus[i] == 1)
         {
           byte r, g, b;
-          if(level == 1)     { r = 1; g = 0; b = 0; }
-          else if(level == 2){ r = 0; g = 1; b = 0; }
-          else if(level == 3){ r = 1; g = 1; b = 0; }
-          else if(level == 4){ r = 0; g = 1; b = 1; }
-          else if(level == 5){ r = 1; g = 0; b = 1; }
+          if(level == 1)     { r = 36; g = 0; b = 0; }
+          else if(level == 2){ r = 0; g = 36; b = 0; }
+          else if(level == 3){ r = 36; g = 36; b = 0; }
+          else if(level == 4){ r = 0; g = 36; b = 36; }
+          else if(level == 5){ r = 36; g = 0; b = 36; }
           
-          matrix.drawPixel(enemyX[i] + 3, enemyY[i], matrix.Color333(r * 5, g * 5, b * 5));
-          matrix.drawPixel(enemyX[i] + 4, enemyY[i], matrix.Color333(r, g, b));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 1, matrix.Color333(0, 0, 5));
-          matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 1, matrix.Color333(0, 0, 1));
-          matrix.drawPixel(enemyX[i] + 4, enemyY[i] + 1, matrix.Color333(r, g, b));
-          matrix.drawPixel(enemyX[i], enemyY[i] + 2, matrix.Color333(r * 5, g * 5, b * 5));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 2, matrix.Color333(r, g, b));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 2, matrix.Color333(r, g, b));
-          matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 2, matrix.Color333(r, g, b));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 3, matrix.Color333(r * 5, g * 5, b * 5));
-          matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 3, matrix.Color333(r, g, b));
+          dma_display->drawPixel(enemyX[i] + 3, enemyY[i], dma_display->color565(r * 5, g * 5, b * 5));
+          dma_display->drawPixel(enemyX[i] + 4, enemyY[i], dma_display->color565(r, g, b));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 1, dma_display->color565(0, 0, 182));
+          dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 1, dma_display->color565(0, 0, 36));
+          dma_display->drawPixel(enemyX[i] + 4, enemyY[i] + 1, dma_display->color565(r, g, b));
+          dma_display->drawPixel(enemyX[i], enemyY[i] + 2, dma_display->color565(r * 5, g * 5, b * 5));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 2, dma_display->color565(r, g, b));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 2, dma_display->color565(r, g, b));
+          dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 2, dma_display->color565(r, g, b));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 3, dma_display->color565(r * 5, g * 5, b * 5));
+          dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 3, dma_display->color565(r, g, b));
           if((eventCounter % 4) == 0)
           {
-            matrix.drawPixel(enemyX[i] + 4, enemyY[i] + 2, matrix.Color333(5, 5, 0));
+            dma_display->drawPixel(enemyX[i] + 4, enemyY[i] + 2, dma_display->color565(182, 182, 0));
           }
           if((eventCounter % 8) == 0)
           {
-            matrix.drawPixel(enemyX[i] + 4, enemyY[i] + 3, matrix.Color333(5, 5, 0));
+            dma_display->drawPixel(enemyX[i] + 4, enemyY[i] + 3, dma_display->color565(182, 182, 0));
           }
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 4, matrix.Color333(r, g, b));
-          matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 4, matrix.Color333(r, g, b));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 5, matrix.Color333(r * 5, g * 5, b * 5));
-          matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 5, matrix.Color333(r, g, b));
-          matrix.drawPixel(enemyX[i] + 4, enemyY[i] + 5, matrix.Color333(r, g, b));
-          matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 6, matrix.Color333(r * 5, g * 5, b * 5));
-          matrix.drawPixel(enemyX[i] + 4, enemyY[i] + 6, matrix.Color333(r, g, b));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 4, dma_display->color565(r, g, b));
+          dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 4, dma_display->color565(r, g, b));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 5, dma_display->color565(r * 5, g * 5, b * 5));
+          dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 5, dma_display->color565(r, g, b));
+          dma_display->drawPixel(enemyX[i] + 4, enemyY[i] + 5, dma_display->color565(r, g, b));
+          dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 6, dma_display->color565(r * 5, g * 5, b * 5));
+          dma_display->drawPixel(enemyX[i] + 4, enemyY[i] + 6, dma_display->color565(r, g, b));
           playfield[byte(enemyX[i] + 8)][byte(enemyY[i] + 5)] = i + 3;
           playfield[byte(enemyX[i] + 9)][byte(enemyY[i] + 5)] = i + 3;
           playfield[byte(enemyX[i] + 7)][byte(enemyY[i] + 6)] = i + 3;
@@ -1978,10 +1891,10 @@ void moveEnemies()
       if(enemyType[i] == 9)
       {
         // Remove existing enemy
-        matrix.drawPixel(enemyX[i], enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(0, 0, 0));
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 7)][byte(enemyY[i] + 5)] = 0;
@@ -2004,17 +1917,17 @@ void moveEnemies()
         {
           if(level != 5)
           {
-            matrix.drawPixel(enemyX[i] + 2, enemyY[i], matrix.Color333(0, 0, 1));
-            matrix.drawPixel(enemyX[i] + 1, enemyY[i], matrix.Color333(0, 0, 5));
-            matrix.drawPixel(enemyX[i], enemyY[i], matrix.Color333(0, 0, 1));
-            matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(0, 0, 1));
+            dma_display->drawPixel(enemyX[i] + 2, enemyY[i], dma_display->color565(0, 0, 36));
+            dma_display->drawPixel(enemyX[i] + 1, enemyY[i], dma_display->color565(0, 0, 182));
+            dma_display->drawPixel(enemyX[i], enemyY[i], dma_display->color565(0, 0, 36));
+            dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(0, 0, 36));
           }
           else
           {
-            matrix.drawPixel(enemyX[i] + 2, enemyY[i], matrix.Color333(0, 1, 0));
-            matrix.drawPixel(enemyX[i] + 1, enemyY[i], matrix.Color333(0, 5, 0));
-            matrix.drawPixel(enemyX[i], enemyY[i], matrix.Color333(0, 1, 0));
-            matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(0, 1, 0));
+            dma_display->drawPixel(enemyX[i] + 2, enemyY[i], dma_display->color565(0, 36, 0));
+            dma_display->drawPixel(enemyX[i] + 1, enemyY[i], dma_display->color565(0, 182, 0));
+            dma_display->drawPixel(enemyX[i], enemyY[i], dma_display->color565(0, 36, 0));
+            dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(0, 36, 0));
           }
           playfield[byte(enemyX[i] + 7)][byte(enemyY[i] + 5)] = i + 3;
           playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 5)] = i + 3;
@@ -2027,11 +1940,11 @@ void moveEnemies()
       if(enemyType[i] == 10)
       {
         // Remove existing enemy
-        matrix.drawPixel(enemyX[i], enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 2, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 2, dma_display->color565(0, 0, 0));
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = 0;
@@ -2062,11 +1975,11 @@ void moveEnemies()
         // Draw enemy
         if(enemyStatus[i] == 1)
         {
-        matrix.drawPixel(enemyX[i], enemyY[i], matrix.Color333(7, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i], matrix.Color333(3, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(0, 0, 3));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 2, matrix.Color333(7, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 2, matrix.Color333(3, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i], dma_display->color565(255, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i], dma_display->color565(109, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(0, 0, 109));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 2, dma_display->color565(255, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 2, dma_display->color565(109, 0, 0));
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 5)] = i + 3;
         playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 5)] = i + 3;
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = i + 3;
@@ -2079,10 +1992,10 @@ void moveEnemies()
       if(enemyType[i] == 11)
       {
         // Remove existing enemy
-        matrix.drawPixel(enemyX[i], enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 2, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 2, dma_display->color565(0, 0, 0));
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = 0;
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 7)] = 0;
@@ -2109,10 +2022,10 @@ void moveEnemies()
         // Draw enemy
         if(enemyStatus[i] == 1)
         {
-          matrix.drawPixel(enemyX[i], enemyY[i], matrix.Color333(0, 0, 3));
-          matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(5, 0, 3));
-          matrix.drawPixel(enemyX[i], enemyY[i] + 2, matrix.Color333(5, 0, 3));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 2, matrix.Color333(3, 0, 3));
+          dma_display->drawPixel(enemyX[i], enemyY[i], dma_display->color565(0, 0, 109));
+          dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(182, 0, 109));
+          dma_display->drawPixel(enemyX[i], enemyY[i] + 2, dma_display->color565(182, 0, 109));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 2, dma_display->color565(109, 0, 109));
           playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 5)] = i + 3;
           playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = i + 3;
           playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 7)] = i + 3;
@@ -2124,14 +2037,14 @@ void moveEnemies()
       if(enemyType[i] == 12)
       {
         // Remove existing enemy
-        matrix.drawPixel(enemyX[i] + 4, enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 4, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 2, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 4, enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 4, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 2, dma_display->color565(0, 0, 0));
         playfield[byte(enemyX[i] + 9)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 7)][byte(enemyY[i] + 6)] = 0;
         playfield[byte(enemyX[i] + 8)][byte(enemyY[i] + 6)] = 0;
@@ -2165,14 +2078,14 @@ void moveEnemies()
         // Draw enemy
         if(enemyStatus[i] == 1)
         {
-          matrix.drawPixel(enemyX[i] + 4, enemyY[i], matrix.Color333(0, 2, 4));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 1, matrix.Color333(0, 0, 5));
-          matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 1, matrix.Color333(3, 3, 0));
-          matrix.drawPixel(enemyX[i] + 4, enemyY[i] + 1, matrix.Color333(3, 3, 0));
-          matrix.drawPixel(enemyX[i], enemyY[i] + 2, matrix.Color333(0, 5, 5));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 2, matrix.Color333(0, 2, 4));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 2, matrix.Color333(0, 2, 4));
-          matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 2, matrix.Color333(0, 2, 4));
+          dma_display->drawPixel(enemyX[i] + 4, enemyY[i], dma_display->color565(0, 72, 145));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 1, dma_display->color565(0, 0, 5));
+          dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 1, dma_display->color565(109, 109, 0));
+          dma_display->drawPixel(enemyX[i] + 4, enemyY[i] + 1, dma_display->color565(109, 109, 0));
+          dma_display->drawPixel(enemyX[i], enemyY[i] + 2, dma_display->color565(0, 182, 182));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 2, dma_display->color565(0, 72, 145));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 2, dma_display->color565(0, 72, 145));
+          dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 2, dma_display->color565(0, 72, 145));
           playfield[byte(enemyX[i] + 9)][byte(enemyY[i] + 5)] = i + 3;
           playfield[byte(enemyX[i] + 7)][byte(enemyY[i] + 6)] = i + 3;
           playfield[byte(enemyX[i] + 8)][byte(enemyY[i] + 6)] = i + 3;
@@ -2188,15 +2101,15 @@ void moveEnemies()
       if(enemyType[i] == 13)
       {
         // Remove existing enemy
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 3, enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 2, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 3, enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 2, dma_display->color565(0, 0, 0));
         playfield[byte(enemyX[i] + 7)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 8)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = 0;
@@ -2222,15 +2135,15 @@ void moveEnemies()
         // Draw enemy
         if(enemyStatus[i] == 1)
         {
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i], matrix.Color333(5, 0, 5));
-          matrix.drawPixel(enemyX[i] + 3, enemyY[i], matrix.Color333(3, 0, 3));
-          matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(0, 0, 3));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(3, 0, 3));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 1, matrix.Color333(3, 0, 3));
-          matrix.drawPixel(enemyX[i] + 3, enemyY[i] + 1, matrix.Color333(3, 0, 3));
-          matrix.drawPixel(enemyX[i], enemyY[i] + 2, matrix.Color333(5, 0, 5));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 2, matrix.Color333(3, 0, 3));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 2, matrix.Color333(3, 0, 3));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i], dma_display->color565(182, 0, 182));
+          dma_display->drawPixel(enemyX[i] + 3, enemyY[i], dma_display->color565(109, 0, 109));
+          dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(0, 0, 109));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(109, 0, 109));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 1, dma_display->color565(109, 0, 109));
+          dma_display->drawPixel(enemyX[i] + 3, enemyY[i] + 1, dma_display->color565(109, 0, 109));
+          dma_display->drawPixel(enemyX[i], enemyY[i] + 2, dma_display->color565(182, 0, 182));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 2, dma_display->color565(109, 0, 109));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 2, dma_display->color565(109, 0, 109));
           playfield[byte(enemyX[i] + 7)][byte(enemyY[i] + 5)] = i + 3;
           playfield[byte(enemyX[i] + 8)][byte(enemyY[i] + 5)] = i + 3;
           playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = i + 3;
@@ -2247,10 +2160,10 @@ void moveEnemies()
       if(enemyType[i] == 14)
       {
         // Remove existing enemy
-        matrix.drawPixel(enemyX[i], enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 3, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 3, dma_display->color565(0, 0, 0));
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = 0;
         playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 7)] = 0;
@@ -2280,10 +2193,10 @@ void moveEnemies()
         // Draw enemy
         if(enemyStatus[i] == 1)
         {
-          matrix.drawPixel(enemyX[i], enemyY[i], matrix.Color333(3, 3, 3));
-          matrix.drawPixel(enemyX[i], enemyY[i] + 1, matrix.Color333(3, 3, 3));
-          matrix.drawPixel(enemyX[i], enemyY[i] + 2, matrix.Color333(3, 3, 3));
-          matrix.drawPixel(enemyX[i], enemyY[i] + 3, matrix.Color333(3, 3, 3));
+          dma_display->drawPixel(enemyX[i], enemyY[i], dma_display->color565(109, 109, 109));
+          dma_display->drawPixel(enemyX[i], enemyY[i] + 1, dma_display->color565(109, 109, 109));
+          dma_display->drawPixel(enemyX[i], enemyY[i] + 2, dma_display->color565(109, 109, 109));
+          dma_display->drawPixel(enemyX[i], enemyY[i] + 3, dma_display->color565(109, 109, 109));
           playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 5)] = i + 3;
           playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 6)] = i + 3;
           playfield[byte(enemyX[i] + 5)][byte(enemyY[i] + 7)] = i + 3;
@@ -2295,20 +2208,20 @@ void moveEnemies()
       if(enemyType[i] == 15)
       {
         // Remove existing enemy
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i], matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 1, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 2, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 3, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 3, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i], enemyY[i] + 4, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 4, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 4, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 5, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 5, matrix.Color333(0, 0, 0));
-        matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 6, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i], dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 1, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 2, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 3, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 3, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i], enemyY[i] + 4, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 4, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 4, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 5, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 5, dma_display->color565(0, 0, 0));
+        dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 6, dma_display->color565(0, 0, 0));
         playfield[byte(enemyX[i] + 7)][byte(enemyY[i] + 5)] = 0;
         playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 6)] = 0;
         playfield[byte(enemyX[i] + 7)][byte(enemyY[i] + 6)] = 0;
@@ -2337,20 +2250,20 @@ void moveEnemies()
         // Draw enemy
         if(enemyStatus[i] == 1)
         {
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i], matrix.Color333(3, 3, 3));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 1, matrix.Color333(3, 3, 3));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 1, matrix.Color333(3, 0, 0));
-          matrix.drawPixel(enemyX[i], enemyY[i] + 2, matrix.Color333(3, 3, 3));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 2, matrix.Color333(3, 0, 0));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 2, matrix.Color333(0, 0, 3));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 3, matrix.Color333(7, 7, 7));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 3, matrix.Color333(3, 0, 0));
-          matrix.drawPixel(enemyX[i], enemyY[i] + 4, matrix.Color333(3, 3, 3));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 4, matrix.Color333(3, 0, 0));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 4, matrix.Color333(0, 0, 3));
-          matrix.drawPixel(enemyX[i] + 1, enemyY[i] + 5, matrix.Color333(3, 3, 3));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 5, matrix.Color333(3, 0, 0));
-          matrix.drawPixel(enemyX[i] + 2, enemyY[i] + 6, matrix.Color333(3, 3, 3));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i], dma_display->color565(109, 109, 109));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 1, dma_display->color565(109, 109, 109));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 1, dma_display->color565(109, 0, 0));
+          dma_display->drawPixel(enemyX[i], enemyY[i] + 2, dma_display->color565(109, 109, 109));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 2, dma_display->color565(109, 0, 0));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 2, dma_display->color565(0, 0, 109));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 3, dma_display->color565(255, 255, 255));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 3, dma_display->color565(109, 0, 0));
+          dma_display->drawPixel(enemyX[i], enemyY[i] + 4, dma_display->color565(109, 109, 109));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 4, dma_display->color565(109, 0, 0));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 4, dma_display->color565(0, 0, 109));
+          dma_display->drawPixel(enemyX[i] + 1, enemyY[i] + 5, dma_display->color565(109, 109, 109));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 5, dma_display->color565(109, 0, 0));
+          dma_display->drawPixel(enemyX[i] + 2, enemyY[i] + 6, dma_display->color565(109, 109, 109));
           playfield[byte(enemyX[i] + 7)][byte(enemyY[i] + 5)] = i + 3;
           playfield[byte(enemyX[i] + 6)][byte(enemyY[i] + 6)] = i + 3;
           playfield[byte(enemyX[i] + 7)][byte(enemyY[i] + 6)] = i + 3;
@@ -2395,7 +2308,7 @@ void moveEnemies()
         }
 
         // Sound of fired shot
-        tone(audio,256,20);
+        tone(BUZZER_PIN,256,20, BUZZER_CHANNEL);
       }
     }
 
@@ -2405,18 +2318,18 @@ void moveEnemies()
       // Towers and submarines explode away from ground or ceiling (no point explosion, more a mushroom cloud)
       if(enemyType[i] == 4 || enemyType[i] == 7)
       {
-        matrix.fillCircle(enemyX[i] + (enemyWidth[i] / 2.0), enemyY[i] + (enemyHeight[i] / 2.0) - int((enemyStatus[i] - 2) / 2.0), (enemyStatus[i] - 2) / 2.0, matrix.Color333(7, 7, 6 - (enemyStatus[i] - 3)));
+        dma_display->fillCircle(enemyX[i] + (enemyWidth[i] / 2.0), enemyY[i] + (enemyHeight[i] / 2.0) - int((enemyStatus[i] - 2) / 2.0), (enemyStatus[i] - 2) / 2.0, dma_display->color565(255, 255, 6 - (enemyStatus[i] - 3)));
       }
       else if(enemyType[i] == 9)
       {
-        matrix.fillCircle(enemyX[i] + (enemyWidth[i] / 2.0), enemyY[i] + (enemyHeight[i] / 2.0) + int((enemyStatus[i] - 2) / 2.0), (enemyStatus[i] - 2) / 2.0, matrix.Color333(7, 7, 6 - (enemyStatus[i] - 3)));
+        dma_display->fillCircle(enemyX[i] + (enemyWidth[i] / 2.0), enemyY[i] + (enemyHeight[i] / 2.0) + int((enemyStatus[i] - 2) / 2.0), (enemyStatus[i] - 2) / 2.0, dma_display->color565(255, 255, 6 - (enemyStatus[i] - 3)));
       }
       else
       // Normal explosion
       {  
-        matrix.fillCircle(enemyX[i] + (enemyWidth[i] / 2.0), enemyY[i] + (enemyHeight[i] / 2.0), (enemyStatus[i] - 2) / 2.0, matrix.Color333(7, 7, 6 - (enemyStatus[i] - 3)));
+        dma_display->fillCircle(enemyX[i] + (enemyWidth[i] / 2.0), enemyY[i] + (enemyHeight[i] / 2.0), (enemyStatus[i] - 2) / 2.0, dma_display->color565(255, 255, 6 - (enemyStatus[i] - 3)));
       }
-      tone(audio, 2048 / pow(2,(enemyStatus[i] - 2)), 40);
+      tone(BUZZER_PIN, 2048 / pow(2,(enemyStatus[i] - 2)), 40, BUZZER_CHANNEL);
       enemyStatus[i]++;
     }
     // Remove enemy explosion
@@ -2424,15 +2337,15 @@ void moveEnemies()
     {
       if(enemyType[i] == 4 || enemyType[i] == 7)
       {
-        matrix.fillCircle(enemyX[i] + (enemyWidth[i] / 2.0), enemyY[i] + (enemyHeight[i] / 2.0) - int((enemyStatus[i] - 8) / 2.0), (enemyStatus[i] - 8) / 2.0, matrix.Color333(0, 0, 0));
+        dma_display->fillCircle(enemyX[i] + (enemyWidth[i] / 2.0), enemyY[i] + (enemyHeight[i] / 2.0) - int((enemyStatus[i] - 8) / 2.0), (enemyStatus[i] - 8) / 2.0, dma_display->color565(0, 0, 0));
       }
       else if(enemyType[i] == 9)
       {
-        matrix.fillCircle(enemyX[i] + (enemyWidth[i] / 2.0), enemyY[i] + (enemyHeight[i] / 2.0) + int((enemyStatus[i] - 8) / 2.0), (enemyStatus[i] - 8) / 2.0, matrix.Color333(0, 0, 0));
+        dma_display->fillCircle(enemyX[i] + (enemyWidth[i] / 2.0), enemyY[i] + (enemyHeight[i] / 2.0) + int((enemyStatus[i] - 8) / 2.0), (enemyStatus[i] - 8) / 2.0, dma_display->color565(0, 0, 0));
       }
       else
       {
-        matrix.fillCircle(enemyX[i] + (enemyWidth[i] / 2.0), enemyY[i] + (enemyHeight[i] / 2.0), (enemyStatus[i] - 8) / 2.0, matrix.Color333(0, 0, 0));
+        dma_display->fillCircle(enemyX[i] + (enemyWidth[i] / 2.0), enemyY[i] + (enemyHeight[i] / 2.0), (enemyStatus[i] - 8) / 2.0, dma_display->color565(0, 0, 0));
       }
       enemyStatus[i]++;
     }
@@ -2447,14 +2360,14 @@ void moveEnemies()
         {
           if(shotFired[j] > 0)
           {
-            matrix.drawPixel(shotX[j], shotY[j], matrix.Color333(0, 0, 0));
+            dma_display->drawPixel(shotX[j], shotY[j], dma_display->color565(0, 0, 0));
           }
         }
         for(byte j = 0; j < numberOfEnemyShots; j++)
         {
           if(enemyShotStatus[j] > 0)
           {
-            matrix.drawPixel(enemyShotX[j], enemyShotY[j], matrix.Color333(0, 0, 0));
+            dma_display->drawPixel(enemyShotX[j], enemyShotY[j], dma_display->color565(0, 0, 0));
             enemyShotStatus[j] = 0;
           }
         } 
@@ -2476,7 +2389,7 @@ void moveEnemyShots()
     if(enemyShotStatus[i] == 1)
     {
       // Remove existing enemy shots
-      matrix.drawPixel(enemyShotX[i], enemyShotY[i], matrix.Color333(0, 0, 0));
+      dma_display->drawPixel(enemyShotX[i], enemyShotY[i], dma_display->color565(0, 0, 0));
       playfield[byte(enemyShotX[i] + 5)][byte(enemyShotY[i] + 5)] = 0;
 
       // Move
@@ -2492,7 +2405,7 @@ void moveEnemyShots()
       // Draw enemy
       if(enemyShotStatus[i] == 1)
       {
-        matrix.drawPixel(enemyShotX[i], enemyShotY[i], matrix.Color333(7, 7, 0));
+        dma_display->drawPixel(enemyShotX[i], enemyShotY[i], dma_display->color565(255, 255, 0));
         playfield[byte(enemyShotX[i] + 5)][byte(enemyShotY[i] + 5)] = 15;
       }      
     }
@@ -2501,39 +2414,50 @@ void moveEnemyShots()
 
 void moveShip()
 {
+  lX = (Ps3.data.analog.stick.lx);
+  lY = (Ps3.data.analog.stick.ly);
+  rX = (Ps3.data.analog.stick.rx);
+  rY = (Ps3.data.analog.stick.ry);
+  r1 = (Ps3.event.analog_changed.button.r1);
+  
   // Remove ship at old position
-  matrix.drawPixel(shipX, shipY, matrix.Color333(0, 0, 0));
-  matrix.drawPixel(shipX + 1, shipY, matrix.Color333(0, 0, 0));
-  matrix.drawPixel(shipX, shipY + 1, matrix.Color333(0, 0, 0));
-  matrix.drawPixel(shipX + 1, shipY + 1, matrix.Color333(0, 0, 0));
-  matrix.drawPixel(shipX + 2, shipY + 1, matrix.Color333(0, 0, 0));
-  matrix.drawPixel(shipX + 3, shipY + 1, matrix.Color333(0, 0, 0));
-  matrix.drawPixel(shipX + 1, shipY + 2, matrix.Color333(0, 0, 0));
-  matrix.drawPixel(shipX + 2, shipY + 2, matrix.Color333(0, 0, 0));
-  matrix.drawPixel(shipX + 3, shipY + 2, matrix.Color333(0, 0, 0));
-  matrix.drawPixel(shipX + 4, shipY + 2, matrix.Color333(0, 0, 0));
-  matrix.drawPixel(shipX + 5, shipY + 2, matrix.Color333(0, 0, 0));
+  dma_display->drawPixel(shipX, shipY, dma_display->color565(0, 0, 0));
+  dma_display->drawPixel(shipX + 1, shipY, dma_display->color565(0, 0, 0));
+  dma_display->drawPixel(shipX, shipY + 1, dma_display->color565(0, 0, 0));
+  dma_display->drawPixel(shipX + 1, shipY + 1, dma_display->color565(0, 0, 0));
+  dma_display->drawPixel(shipX + 2, shipY + 1, dma_display->color565(0, 0, 0));
+  dma_display->drawPixel(shipX + 3, shipY + 1, dma_display->color565(0, 0, 0));
+  dma_display->drawPixel(shipX + 1, shipY + 2, dma_display->color565(0, 0, 0));
+  dma_display->drawPixel(shipX + 2, shipY + 2, dma_display->color565(0, 0, 0));
+  dma_display->drawPixel(shipX + 3, shipY + 2, dma_display->color565(0, 0, 0));
+  dma_display->drawPixel(shipX + 4, shipY + 2, dma_display->color565(0, 0, 0));
+  dma_display->drawPixel(shipX + 5, shipY + 2, dma_display->color565(0, 0, 0));
 
   // Check joystick 1 for player 1
-  if(joy1Left() && (shipX > 0))
+  if(lX < -5 && shipX > 0)
   {
-    shipX--;
+   shipX--;
   }
-  if(joy1Right() && (shipX < 27))
+
+  if(lX > 5 && shipX < 59)
   {
-    shipX++;
+   shipX++;
   }
-  if(joy1Up() && (shipY > 0))
+
+  if(lY < -5 && shipY > 0)
   {
-    shipY--;
+   shipY--;
   }
-  if(joy1Down() && (shipY < 29))
+
+  if(lY > 5 && shipY < 29)
   {
-    shipY++;
+   shipY++;
   }
-  if(joy1Fire() && weaponStatus == 0)
+  
+  if(r1 > 5 && weaponStatus == 0)
   {
-    tone(audio,128,20);
+    
+    tone(BUZZER_PIN,128,20, BUZZER_CHANNEL);
 
     // Depending on shot level, up to 6 shots fired at once
     for(byte i = 0; i < shotLevel; i++)
@@ -2656,16 +2580,16 @@ void moveShip()
   // Draw ship at new position
   if(shieldEnergy == 0 || ((shieldEnergy > 0) && (eventCounter % 4 == 0)))
   {
-    matrix.drawPixel(shipX, shipY, matrix.Color333(5, 0, 0));
-    matrix.drawPixel(shipX + 1, shipY, matrix.Color333(1, 0, 0));
-    matrix.drawPixel(shipX, shipY + 1, matrix.Color333(5, 0, 0));
-    matrix.drawPixel(shipX + 1, shipY + 1, matrix.Color333(1, 0, 0));
-    matrix.drawPixel(shipX + 2, shipY + 1, matrix.Color333(1, 0, 0));
-    matrix.drawPixel(shipX + 3, shipY + 1, matrix.Color333(0, 0, 5));
-    matrix.drawPixel(shipX + 1, shipY + 2, matrix.Color333(5, 0, 0));
-    matrix.drawPixel(shipX + 2, shipY + 2, matrix.Color333(1, 0, 0));
-    matrix.drawPixel(shipX + 3, shipY + 2, matrix.Color333(1, 0, 0));
-    matrix.drawPixel(shipX + 4, shipY + 2, matrix.Color333(5, 0, 0));
+    dma_display->drawPixel(shipX, shipY, dma_display->color565(182, 0, 0));
+    dma_display->drawPixel(shipX + 1, shipY, dma_display->color565(36, 0, 0));
+    dma_display->drawPixel(shipX, shipY + 1, dma_display->color565(182, 0, 0));
+    dma_display->drawPixel(shipX + 1, shipY + 1, dma_display->color565(36, 0, 0));
+    dma_display->drawPixel(shipX + 2, shipY + 1, dma_display->color565(36, 0, 0));
+    dma_display->drawPixel(shipX + 3, shipY + 1, dma_display->color565(0, 0, 182));
+    dma_display->drawPixel(shipX + 1, shipY + 2, dma_display->color565(182, 0, 0));
+    dma_display->drawPixel(shipX + 2, shipY + 2, dma_display->color565(36, 0, 0));
+    dma_display->drawPixel(shipX + 3, shipY + 2, dma_display->color565(36, 0, 0));
+    dma_display->drawPixel(shipX + 4, shipY + 2, dma_display->color565(182, 0, 0));
   }
   
   // Flashing in front of the ship means that power shot is charged
@@ -2673,8 +2597,8 @@ void moveShip()
   {
     if((eventCounter % 4) == 0)
     {
-      matrix.drawPixel(shipX + 5, shipY + 2, matrix.Color333(7, 7, 7));
-      tone(audio, 1024, 10);
+      dma_display->drawPixel(shipX + 5, shipY + 2, dma_display->color565(255, 255, 255));
+      tone(BUZZER_PIN, 1024, 10, BUZZER_CHANNEL);
     }
   }
   
@@ -2688,10 +2612,10 @@ void moveShots()
     if(shotFired[i] == 1)
     {
       // Remove shot at old position
-      matrix.drawPixel(shotX[i], shotY[i], matrix.Color333(0, 0, 0));
+      dma_display->drawPixel(shotX[i], shotY[i], dma_display->color565(0, 0, 0));
 
       // Remove shot if out of screen or if ceiling or ground has been hit (< 1 for shots fired backwards)
-      if(shotX[i] < 1 || shotX[i] > 30 || (shotY[i] - 1 < ceiling[(scrollPointer + byte(shotX[i])) % 32]) || (shotY[i] + 1 > ground[(scrollPointer + byte(shotX[i])) % 32]))
+      if(shotX[i] < 1 || shotX[i] > 60 || (shotY[i] - 1 < ceiling[(scrollPointer + byte(shotX[i])) % 32]) || (shotY[i] + 1 > ground[(scrollPointer + byte(shotX[i])) % 32]))
       {
         shotFired[i] = 0;
       }
@@ -2707,7 +2631,7 @@ void moveShots()
         {
           // Find the correct enemy according to its ID and remove one hit point
           enemyHitPoints[j - 3]--;
-          tone(audio,512,20);
+          tone(BUZZER_PIN,512,20, BUZZER_CHANNEL);
           // If no more hit points remain, set enemy status = 2 (explosion)
           if(enemyHitPoints[j - 3] < 1)
           {
@@ -2718,7 +2642,7 @@ void moveShots()
         else
         // Draw shot at new position
         {
-          matrix.drawPixel(shotX[i], shotY[i], matrix.Color333(3, 3, 3));
+          dma_display->drawPixel(shotX[i], shotY[i], dma_display->color565(109, 109, 109));
         }
       }
     }
@@ -2727,13 +2651,13 @@ void moveShots()
     if(shotFired[i] == 2)
     {
       // Remove shot at old position
-      matrix.drawPixel(shotX[i], shotY[i], matrix.Color333(0, 0, 0));
-      matrix.drawPixel(shotX[i] + 1, shotY[i], matrix.Color333(0, 0, 0));
-      matrix.drawPixel(shotX[i] + 2, shotY[i], matrix.Color333(0, 0, 0));
-      matrix.drawPixel(shotX[i] + 3, shotY[i], matrix.Color333(0, 0, 0));
+      dma_display->drawPixel(shotX[i], shotY[i], dma_display->color565(0, 0, 0));
+      dma_display->drawPixel(shotX[i] + 1, shotY[i], dma_display->color565(0, 0, 0));
+      dma_display->drawPixel(shotX[i] + 2, shotY[i], dma_display->color565(0, 0, 0));
+      dma_display->drawPixel(shotX[i] + 3, shotY[i], dma_display->color565(0, 0, 0));
 
       // Remove shot if out of screen or if ceiling or ground has been hit
-      if(shotX[i] > 30 || (shotY[i] - 1 < ceiling[(scrollPointer + byte(shotX[i] + 3)) % 32]) || (shotY[i] + 1 > ground[(scrollPointer + byte(shotX[i] + 3)) % 32]))
+      if(shotX[i] > 60 || (shotY[i] - 1 < ceiling[(scrollPointer + byte(shotX[i] + 3)) % 32]) || (shotY[i] + 1 > ground[(scrollPointer + byte(shotX[i] + 3)) % 32]))
       {
         shotFired[i] = 0;
       }
@@ -2749,7 +2673,7 @@ void moveShots()
         {
           // Find the correct enemy according to its ID and remove 25 hit points
           enemyHitPoints[j - 3] = enemyHitPoints[j - 3] - 25;
-          tone(audio,512,20);
+          tone(BUZZER_PIN,512,20, BUZZER_CHANNEL);
           // If no more hit points remain, set enemy status = 2 (explosion)
           if(enemyHitPoints[j - 3] < 1)
           {
@@ -2762,15 +2686,15 @@ void moveShots()
         {
           if((eventCounter % 8) == 0)
           {
-            matrix.drawPixel(shotX[i], shotY[i], matrix.Color333(1,1,3));
+            dma_display->drawPixel(shotX[i], shotY[i], dma_display->color565(36,36,109));
           }
           if((eventCounter % 4) == 0)
           {
-            matrix.drawPixel(shotX[i] + 1, shotY[i], matrix.Color333(1,1,3));
-            tone(audio, 2048, 10);
+            dma_display->drawPixel(shotX[i] + 1, shotY[i], dma_display->color565(36,36,109));
+            tone(BUZZER_PIN, 2048, 10, BUZZER_CHANNEL);
           }
-          matrix.drawPixel(shotX[i] + 2, shotY[i], matrix.Color333(3,3,7));
-          matrix.drawPixel(shotX[i] + 3, shotY[i], matrix.Color333(7,7,7));
+          dma_display->drawPixel(shotX[i] + 2, shotY[i], dma_display->color565(109,109,255));
+          dma_display->drawPixel(shotX[i] + 3, shotY[i], dma_display->color565(255,255,255));
         }
       }
     }
@@ -2803,14 +2727,14 @@ void movePowerUps()
       {
         powerUpType = 0;  
       }
-      powerUpX = 32;
+      powerUpX = 64;
       powerUpY = random(ground[scrollPointer] - 4 - ceiling[scrollPointer]) + ceiling[scrollPointer] + 2;
     }
   }
   if(powerUpActive == 1);
   {
     // Remove shot at old position
-    matrix.drawPixel(powerUpX, powerUpY, matrix.Color333(0, 0, 0));
+    dma_display->drawPixel(powerUpX, powerUpY, dma_display->color565(0, 0, 0));
     playfield[byte(powerUpX + 5)][byte(powerUpY + 5)] = 0;
 
     // Remove power up if it reaches the left screen border or if it has been collected
@@ -2827,24 +2751,24 @@ void movePowerUps()
       {
         if(powerUpType == 0)
         {
-          matrix.drawPixel(powerUpX, powerUpY, matrix.Color333(7, 0, 7));
+          dma_display->drawPixel(powerUpX, powerUpY, dma_display->color565(255, 0, 255));
         }
         if(powerUpType == 1)
         {
-          matrix.drawPixel(powerUpX, powerUpY, matrix.Color333(0, 0, 7));
+          dma_display->drawPixel(powerUpX, powerUpY, dma_display->color565(0, 0, 255));
         }
         if(powerUpType == 2)
         {
-          matrix.drawPixel(powerUpX, powerUpY, matrix.Color333(0, 7, 0));
+          dma_display->drawPixel(powerUpX, powerUpY, dma_display->color565(0, 255, 0));
         }
         if(powerUpType == 3)
         {
-          matrix.drawPixel(powerUpX, powerUpY, matrix.Color333(7, 0, 0));
+          dma_display->drawPixel(powerUpX, powerUpY, dma_display->color565(255, 0, 0));
         }
       }
       else
       {
-        matrix.drawPixel(powerUpX, powerUpY, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(powerUpX, powerUpY, dma_display->color565(0, 0, 0));
       }
       playfield[byte(powerUpX + 5)][byte(powerUpY + 5)] = 1;
     }
@@ -2890,7 +2814,7 @@ void powerUpCollected()
     lives++;
   }
           
-  tone(audio, 512, 20);
+  tone(BUZZER_PIN, 512, 20, BUZZER_CHANNEL);
 }
 
 // Method to perform the scrolling (drawing the following landscape is performed in a separate method) 
@@ -2901,7 +2825,7 @@ void scroll()
 
   // Ground and ceiling positions are stored in two arrays of size 32 (screen width)
   // Instead of always moving every value within the array, only a "scrollPointer" is incremented pointing to the index to store the next ground and ceiling positions coming into the screen on the right hand side.
-  if(scrollPointer < 31)
+  if(scrollPointer < 63)
   {
     scrollPointer++;
   }
@@ -3046,11 +2970,11 @@ void drawStars()
     for(byte i = 0; i < 24; i++)
     {
       // Remove star at old position
-      if(starX[i] < 32 
+      if(starX[i] < 64 
           && !((starY[i] == shipY) && (starX[i] >= shipX) && (starX[i] <= shipX + 1))
           && !((starY[i] == shipY + 1) && (starX[i] >= shipX) && (starX[i] <= shipX + 3))
           && !((starY[i] == shipY + 2) && (starX[i] >= shipX + 1) && (starX[i] <= shipX + 4))
-          ){ matrix.drawPixel(byte(starX[i]), byte(starY[i]), matrix.Color333(0, 0, 0)); }
+          ){ dma_display->drawPixel(byte(starX[i]), byte(starY[i]), dma_display->color565(0, 0, 0)); }
 
       // Set new star position
       starX[i] = starX[i] - starSpeed[i];
@@ -3058,11 +2982,11 @@ void drawStars()
       if(starX[i] < 0){ starX[i] = 127; }
 
       // Draw star
-      if(starX[i] < 32 
+      if(starX[i] < 64 
           && !((starY[i] == shipY) && (starX[i] >= shipX) && (starX[i] <= shipX + 1))
           && !((starY[i] == shipY + 1) && (starX[i] >= shipX) && (starX[i] <= shipX + 3))
           && !((starY[i] == shipY + 2) && (starX[i] >= shipX + 1) && (starX[i] <= shipX + 4))
-          ){ matrix.drawPixel(byte(starX[i]), byte(starY[i]), matrix.Color333(1, 1, 1)); }
+          ){ dma_display->drawPixel(byte(starX[i]), byte(starY[i]), dma_display->color565(36, 36, 36)); }
     }    
   }  
 }
@@ -3072,7 +2996,7 @@ void drawStars()
 void drawLandscape()
 {
   byte j = scrollPointer + 1;  
-  for(byte i = 0; i < 32; i++)
+  for(byte i = 0; i < 64; i++)
   {
     if(j > 31)
     {
@@ -3082,77 +3006,77 @@ void drawLandscape()
     {
       for(byte k = 0; k < 12; k++)
       {
-        matrix.drawPixel(-1, -1, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(-1, -1, dma_display->color565(0, 0, 0));
       }
     }    
     else if(level == 2)
     {
       if((j % 4) == 0)
       {
-        matrix.drawPixel(i, ground[j], matrix.Color333(0, 0, 1));
-        matrix.drawPixel(i, ground[j] + 1, matrix.Color333(0, 0, 3));
-        matrix.drawPixel(i, ground[j] + 2, matrix.Color333(0, 0, 1));
-        matrix.drawPixel(i, ground[j] + 3, matrix.Color333(0, 0, 7));
+        dma_display->drawPixel(i, ground[j], dma_display->color565(0, 0, 36));
+        dma_display->drawPixel(i, ground[j] + 1, dma_display->color565(0, 0, 109));
+        dma_display->drawPixel(i, ground[j] + 2, dma_display->color565(0, 0, 36));
+        dma_display->drawPixel(i, ground[j] + 3, dma_display->color565(0, 0, 255));
       }
       else if((j % 4) == 1)
       {
-        matrix.drawPixel(i, ground[j], matrix.Color333(0, 0, 3));
-        matrix.drawPixel(i, ground[j] + 1, matrix.Color333(0, 0, 1));
-        matrix.drawPixel(i, ground[j] + 2, matrix.Color333(0, 0, 7));
-        matrix.drawPixel(i, ground[j] + 3, matrix.Color333(0, 0, 1));
+        dma_display->drawPixel(i, ground[j], dma_display->color565(0, 0, 109));
+        dma_display->drawPixel(i, ground[j] + 1, dma_display->color565(0, 0, 36));
+        dma_display->drawPixel(i, ground[j] + 2, dma_display->color565(0, 0, 255));
+        dma_display->drawPixel(i, ground[j] + 3, dma_display->color565(0, 0, 36));
       }
       else if((j % 4) == 2)
       {
-        matrix.drawPixel(i, ground[j], matrix.Color333(0, 0, 1));
-        matrix.drawPixel(i, ground[j] + 1, matrix.Color333(0, 0, 7));
-        matrix.drawPixel(i, ground[j] + 2, matrix.Color333(0, 0, 1));
-        matrix.drawPixel(i, ground[j] + 3, matrix.Color333(0, 0, 3));
+        dma_display->drawPixel(i, ground[j], dma_display->color565(0, 0, 36));
+        dma_display->drawPixel(i, ground[j] + 1, dma_display->color565(0, 0, 255));
+        dma_display->drawPixel(i, ground[j] + 2, dma_display->color565(0, 0, 36));
+        dma_display->drawPixel(i, ground[j] + 3, dma_display->color565(0, 0, 109));
       }
       else
       {
-        matrix.drawPixel(i, ground[j], matrix.Color333(0, 0, 7));
-        matrix.drawPixel(i, ground[j] + 1, matrix.Color333(0, 0, 1));
-        matrix.drawPixel(i, ground[j] + 2, matrix.Color333(0, 0, 3));
-        matrix.drawPixel(i, ground[j] + 3, matrix.Color333(0, 0, 1));
+        dma_display->drawPixel(i, ground[j], dma_display->color565(0, 0, 255));
+        dma_display->drawPixel(i, ground[j] + 1, dma_display->color565(0, 0, 36));
+        dma_display->drawPixel(i, ground[j] + 2, dma_display->color565(0, 0, 109));
+        dma_display->drawPixel(i, ground[j] + 3, dma_display->color565(0, 0, 36));
       }
     }
     else if(level == 3)
     {
-      matrix.drawPixel(i, ground[j] - 1, matrix.Color333(0, 0, 0));
-      matrix.drawPixel(i, ground[j], matrix.Color333(0, 5, 0));
-      matrix.drawPixel(i, ground[j] + 1, matrix.Color333(0, 1, 0));
+      dma_display->drawPixel(i, ground[j] - 1, dma_display->color565(0, 0, 0));
+      dma_display->drawPixel(i, ground[j], dma_display->color565(0, 182, 0));
+      dma_display->drawPixel(i, ground[j] + 1, dma_display->color565(0, 36, 0));
       for(byte k = 0; k < 3; k++)
       {
-        matrix.drawPixel(-1, -1, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(-1, -1, dma_display->color565(0, 0, 0));
       }
     }
     else if(level == 4)
     {
-      matrix.drawPixel(i, ground[j] - 1, matrix.Color333(0, 0, 0));
-      matrix.drawPixel(i, ground[j], matrix.Color333(5, 3, 0));
-      matrix.drawPixel(i, ground[j] + 1, matrix.Color333(1, 1, 0));
+      dma_display->drawPixel(i, ground[j] - 1, dma_display->color565(0, 0, 0));
+      dma_display->drawPixel(i, ground[j], dma_display->color565(182, 109, 0));
+      dma_display->drawPixel(i, ground[j] + 1, dma_display->color565(36, 36, 0));
       for(byte k = 0; k < 3; k++)
       {
-        matrix.drawPixel(-1, -1, matrix.Color333(0, 0, 0));
+        dma_display->drawPixel(-1, -1, dma_display->color565(0, 0, 0));
       }
     }
     else if(level == 5)
     {
-      matrix.drawPixel(i, ceiling[j] - 1, matrix.Color333(0, 0, 1));
-      matrix.drawPixel(i, ceiling[j], matrix.Color333(0, 0, 7));
-      matrix.drawPixel(i, ceiling[j] + 1, matrix.Color333(0, 0, 0));
-      matrix.drawPixel(i, ground[j] - 1, matrix.Color333(0, 0, 0));
-      matrix.drawPixel(i, ground[j], matrix.Color333(0, 0, 7));
-      matrix.drawPixel(i, ground[j] + 1, matrix.Color333(0, 0, 1));
+      dma_display->drawPixel(i, ceiling[j] - 1, dma_display->color565(0, 0, 36));
+      dma_display->drawPixel(i, ceiling[j], dma_display->color565(0, 0, 255));
+      dma_display->drawPixel(i, ceiling[j] + 1, dma_display->color565(0, 0, 0));
+      dma_display->drawPixel(i, ground[j] - 1, dma_display->color565(0, 0, 0));
+      dma_display->drawPixel(i, ground[j], dma_display->color565(0, 0, 255));
+      dma_display->drawPixel(i, ground[j] + 1, dma_display->color565(0, 0, 36));
     }
     else if(level == 6)
     {
-      matrix.drawPixel(i, ceiling[j] - 1, matrix.Color333(1, 0, 0));
-      matrix.drawPixel(i, ceiling[j], matrix.Color333(1, 1, 1));
-      matrix.drawPixel(i, ceiling[j] + 1, matrix.Color333(0, 0, 0));
-      matrix.drawPixel(i, ground[j] - 1, matrix.Color333(0, 0, 0));
-      matrix.drawPixel(i, ground[j], matrix.Color333(1, 1, 1));
-      matrix.drawPixel(i, ground[j] + 1, matrix.Color333(1, 0, 0));
+      dma_display->drawPixel(i, ceiling[j] - 1, dma_display->color565(36, 0, 0));
+      dma_display->drawPixel(i, ceiling[j], dma_display->color565(36, 36, 36));
+      dma_display->drawPixel(i, ceiling[j] + 1, dma_display->color565(0, 0, 0));
+      dma_display->drawPixel(i, ground[j] - 1, dma_display->color565(0, 0, 0));
+      dma_display->drawPixel(i, ground[j], dma_display->color565(36, 36, 36));
+      dma_display->drawPixel(i, ground[j] + 1, dma_display->color565(36, 0, 0));
     }
     j++;
   }
@@ -3266,32 +3190,32 @@ void shipExplodes(byte _x, byte _y)
 // Big explosion used for player´s ship
 void explosion(byte _x, byte _y)
 {
-  matrix.fillCircle(_x, _y, 1, matrix.Color333(7, 7, 7));
-  tone(audio,2048,40);
+  dma_display->fillCircle(_x, _y, 1, dma_display->color565(255, 255, 255));
+  tone(BUZZER_PIN,2048,40, BUZZER_CHANNEL);
   delay(40);
-  matrix.fillCircle(_x, _y, 2, matrix.Color333(7, 7, 5));
-  tone(audio,1024,40);
+  dma_display->fillCircle(_x, _y, 2, dma_display->color565(255, 255, 182));
+  tone(BUZZER_PIN,1024,40, BUZZER_CHANNEL);
   delay(40);
-  matrix.fillCircle(_x, _y, 3, matrix.Color333(7, 7, 3));
-  tone(audio,512,40);
+  dma_display->fillCircle(_x, _y, 3, dma_display->color565(255, 255, 109));
+  tone(BUZZER_PIN,512,40, BUZZER_CHANNEL);
   delay(40);
-  matrix.fillCircle(_x, _y, 4, matrix.Color333(5, 5, 3));
-  tone(audio,256,40);
+  dma_display->fillCircle(_x, _y, 4, dma_display->color565(182, 182, 109));
+  tone(BUZZER_PIN,256,40, BUZZER_CHANNEL);
   delay(40);
-  matrix.fillCircle(_x, _y, 5, matrix.Color333(4, 4, 2));
-  tone(audio,128,40);
+  dma_display->fillCircle(_x, _y, 5, dma_display->color565(145, 145, 72));
+  tone(BUZZER_PIN,128,40, BUZZER_CHANNEL);
   delay(40);
-  matrix.fillCircle(_x, _y, 6, matrix.Color333(3, 3, 2));
-  tone(audio,64,40);
+  dma_display->fillCircle(_x, _y, 6, dma_display->color565(109, 109, 72));
+  tone(BUZZER_PIN,64,40, BUZZER_CHANNEL);
   delay(40);
-  matrix.fillCircle(_x, _y, 7, matrix.Color333(2, 2, 1));
-  tone(audio,32,40);
+  dma_display->fillCircle(_x, _y, 7, dma_display->color565(72, 72, 36));
+  tone(BUZZER_PIN,32,40, BUZZER_CHANNEL);
   delay(40);
-  matrix.fillCircle(_x, _y, 8, matrix.Color333(1, 1, 0));
-  tone(audio,16,40);
+  dma_display->fillCircle(_x, _y, 8, dma_display->color565(36, 36, 0));
+  tone(BUZZER_PIN,16,40, BUZZER_CHANNEL);
   delay(40);
   for(byte i = 1; i < 9; i++){
-    matrix.fillCircle(_x, _y, i, matrix.Color333(0, 0, 0));
+    dma_display->fillCircle(_x, _y, i, dma_display->color565(0, 0, 0));
     delay(40);
   }
 }
@@ -3300,87 +3224,87 @@ void explosion(byte _x, byte _y)
 void showLevelAndScore()
 {
 
-  matrix.fillScreen(matrix.Color333(0, 0, 0));
-  matrix.setTextColor(matrix.Color333(0,0,3));
-  matrix.setCursor(1, 0);
-  matrix.println("Lvl");
-  matrix.setCursor(25, 0);
-  matrix.println(level);
-  matrix.setTextColor(matrix.Color333(1,1,3));
-  matrix.setCursor(1, 8);
+  dma_display->fillScreen(dma_display->color565(0, 0, 0));
+  dma_display->setTextColor(dma_display->color565(0,0,109));
+  dma_display->setCursor(1, 0);
+  dma_display->println("Lvl");
+  dma_display->setCursor(25, 0);
+  dma_display->println(level);
+  dma_display->setTextColor(dma_display->color565(36,36,109));
+  dma_display->setCursor(1, 8);
   switch(level)
   {
   case 1:
-    matrix.println("Space");
+    dma_display->println("Space");
     break;
   case 2:
-    matrix.println("Ocean");
+    dma_display->println("Ocean");
     break;
   case 3:
-    matrix.println("Hills");
+    dma_display->println("Hills");
     break;
   case 4:
-    matrix.println("Rocks");
+    dma_display->println("Rocks");
     break;
   case 5:
-    matrix.println("Caves");
+    dma_display->println("Caves");
     break;
   case 6:
-    matrix.println("Core");
+    dma_display->println("Core");
     break;
   }
-  matrix.setTextColor(matrix.Color333(3,3,0));
-  matrix.setCursor(1, 16);
-  matrix.println("Liv");
+  dma_display->setTextColor(dma_display->color565(109,109,0));
+  dma_display->setCursor(1, 16);
+  dma_display->println("Liv");
   if(lives <= 9)
   {
-    matrix.setCursor(25, 16);
+    dma_display->setCursor(25, 16);
   }
   else
   {
-    matrix.setCursor(19, 16);    
+    dma_display->setCursor(19, 16);    
   }
-  matrix.println(lives);
-  matrix.setTextColor(matrix.Color333(0,0,3));
-  matrix.setCursor(1, 24);
-  matrix.println(score);
+  dma_display->println(lives);
+  dma_display->setTextColor(dma_display->color565(0,0,109));
+  dma_display->setCursor(1, 24);
+  dma_display->println(score);
   delay(2000);
   // Add an extra life for 5000 points
   if(extraLifeScore > 5000)
   {
     extraLifeScore = extraLifeScore - 5000;
     lives++;
-    matrix.fillRect(0, 16, 32, 8, matrix.Color333(0,0,0));
+    dma_display->fillRect(0, 16, 32, 8, dma_display->color565(0,0,0));
     byte i = 0;
     do
     {
-      matrix.setTextColor(matrix.Color333(3,3,0));
-      matrix.setCursor(1, 16);
-      matrix.println("Liv");
+      dma_display->setTextColor(dma_display->color565(109,109,0));
+      dma_display->setCursor(1, 16);
+      dma_display->println("Liv");
       if(lives <= 9)
       {
-        matrix.setCursor(25, 16);
+        dma_display->setCursor(25, 16);
       }
       else
       {
-        matrix.setCursor(19, 16);    
+        dma_display->setCursor(19, 16);    
       }
-      matrix.println(lives);
+      dma_display->println(lives);
       delay(4);
-      matrix.setTextColor(matrix.Color333(0,0,0));
-      matrix.setCursor(1, 16);
-      matrix.println("Liv");
+      dma_display->setTextColor(dma_display->color565(0,0,0));
+      dma_display->setCursor(1, 16);
+      dma_display->println("Liv");
       if(lives <= 9)
       {
-        matrix.setCursor(25, 16);
+        dma_display->setCursor(25, 16);
       }
       else
       {
-        matrix.setCursor(19, 16);    
+        dma_display->setCursor(19, 16);    
       }
-      matrix.println(lives);
+      dma_display->println(lives);
       delay(4);
-      tone(audio,(i % 25) * 32 + 50, 5);
+      tone(BUZZER_PIN,(i % 25) * 32 + 50, 5, BUZZER_CHANNEL);
       i++;
     } while(i < 125);
   }
@@ -3394,63 +3318,63 @@ void showLevelAndScore()
 void gameOver()
 {
   // Game over
-  matrix.fillScreen(matrix.Color333(0, 0, 0));
+  dma_display->fillScreen(dma_display->color565(0, 0, 0));
   for(int i = 100; i > 0; i--)
   {
-    matrix.setCursor(4, 8);
-    matrix.setTextColor(matrix.Color333(0, 0, 7 * (i % 2)));
-    matrix.println("GAME");
-    matrix.setCursor(4, 16);
-    matrix.println("OVER");
-    tone(audio,i * 5,10);
+    dma_display->setCursor(36, 8);
+    dma_display->setTextColor(dma_display->color565(0, 0, 255 * (i % 2)));
+    dma_display->println("GAME");
+    dma_display->setCursor(36, 16);
+    dma_display->println("OVER");
+    tone(BUZZER_PIN,i * 5,10, BUZZER_CHANNEL);
     delay(10);
   }
-  matrix.setCursor(4, 8);
-  matrix.setTextColor(matrix.Color333(0,0,3));
-  matrix.println("GAME");
-  matrix.setCursor(4, 16);
-  matrix.println("OVER");
+  dma_display->setCursor(36, 8);
+  dma_display->setTextColor(dma_display->color565(0,0,109));
+  dma_display->println("GAME");
+  dma_display->setCursor(36, 16);
+  dma_display->println("OVER");
   delay(3000);
 }
 
 // Show score and highScore
 void showScoreAndHighScore()
 {
-  matrix.fillScreen(matrix.Color333(0, 0, 0));
-  matrix.setTextColor(matrix.Color333(0,0,3));
-  matrix.setCursor(1, 0);
-  matrix.println("Score");
-  matrix.setTextColor(matrix.Color333(1,1,3));
-  matrix.setCursor(1, 8);
-  matrix.println(score);
-  matrix.setTextColor(matrix.Color333(3,3,0));
-  matrix.setCursor(1, 16);
-  matrix.println("HiScr");
-  matrix.setTextColor(matrix.Color333(0,0,3));
-  matrix.setCursor(1, 24);
-  matrix.println(highScore);
+  dma_display->fillScreen(dma_display->color565(0, 0, 0));
+  dma_display->setTextColor(dma_display->color565(0,0,109));
+  dma_display->setCursor(1, 0);
+  dma_display->println("Score");
+  dma_display->setTextColor(dma_display->color565(36,36,109));
+  dma_display->setCursor(1, 8);
+  dma_display->println(score);
+  dma_display->setTextColor(dma_display->color565(109,109,0));
+  dma_display->setCursor(1, 16);
+  dma_display->println("HiScr");
+  dma_display->setTextColor(dma_display->color565(0,0,109));
+  dma_display->setCursor(1, 24);
+  dma_display->println(highScore);
   delay(2000);
   if(highScore < score)
   {
     highScore = score;
-    matrix.fillRect(0, 16, 32, 16, matrix.Color333(0,0,0));
+    dma_display->fillRect(0, 16, 32, 16, dma_display->color565(0,0,0));
     byte i = 0;
     do
     {
-      matrix.setTextColor(matrix.Color333(3,3,0));
-      matrix.setCursor(1, 16);
-      matrix.println("HiScr");
-      matrix.setTextColor(matrix.Color333(0,0,3));
-      matrix.setCursor(1, 24);
-      matrix.println(highScore);
+      dma_display->setTextColor(dma_display->color565(109,109,0));
+      dma_display->setCursor(1, 16);
+      dma_display->println("HiScr");
+      dma_display->setTextColor(dma_display->color565(0,0,109));
+      dma_display->setCursor(1, 24);
+      dma_display->println(highScore);
       delay(4);
-      matrix.setTextColor(matrix.Color333(0,0,0));
-      matrix.setCursor(1, 16);
-      matrix.println("HiScr");
-      matrix.setCursor(1, 24);
-      matrix.println(highScore);
+      dma_display->setTextColor(dma_display->color565(0,0,0));
+      dma_display->setCursor(1, 16);
+      dma_display->println("HiScr");
+      dma_display->setCursor(1, 24);
+      dma_display->println(highScore);
       delay(4);
-      tone(audio, i * 32, 5);
+      tone(BUZZER_PIN, i * 32, 5, BUZZER_CHANNEL);
       i++;
     } while(i < 125);    
   }
@@ -3462,32 +3386,41 @@ void showScoreAndHighScore()
 
 void endSequence()
 {  
-  matrix.fillScreen(matrix.Color333(0, 0, 0));
+  dma_display->fillScreen(dma_display->color565(0, 0, 0));
 
   // Draw random stars
-  matrix.fillRect(0, 11, 32, 21, matrix.Color333(0,0,0));
+  dma_display->fillRect(0, 11, 32, 21, dma_display->color565(0,0,0));
   for(byte i = 0; i < 32; i++)
   {
-    matrix.drawPixel(random(32), random(32), matrix.Color333(1, 1, 3));
+    dma_display->drawPixel(random(32), random(32), dma_display->color565(36, 36, 109));
   }
 
   // Draw moon Mimas
-  matrix.fillCircle(16, 16, 8, matrix.Color333(0,0,0)); 
-  matrix.drawCircle(16, 16, 8, matrix.Color333(0,0,3)); 
-  matrix.drawCircle(15, 13, 3, matrix.Color333(0,0,3));
-  delay(4000);
+  unsigned long tempoAnterior = 0;
+  const long PERIODO = 4000;
+  unsigned long tempoAtual = millis();
+  if (tempoAtual - tempoAnterior >= PERIODO) {
+    tempoAnterior = tempoAtual;
+    dma_display->fillCircle(16, 16, 8, dma_display->color565(0,0,0)); 
+    dma_display->drawCircle(16, 16, 8, dma_display->color565(0,0,109)); 
+    dma_display->drawCircle(15, 13, 3, dma_display->color565(0,0,109));
+  }
+  //delay(4000);
   
   // Explosion of Mimas
   explosion(16, 16);
 
   // Well done
-  matrix.fillScreen(matrix.Color333(0, 0, 0));
-  matrix.setTextColor(matrix.Color333(0,0,3));
-  matrix.setCursor(4, 8);
-  matrix.println("WELL");
-  matrix.setCursor(4, 16);
-  matrix.println("DONE");
-  delay(4000);
+  if (tempoAtual - tempoAnterior >= PERIODO) {
+    tempoAnterior = tempoAtual;  
+    dma_display->fillScreen(dma_display->color565(0, 0, 0));
+    dma_display->setTextColor(dma_display->color565(0,0,109));
+    dma_display->setCursor(4, 8);
+    dma_display->println("WELL");
+    dma_display->setCursor(4, 16);
+    dma_display->println("DONE");
+  }
+  //delay(4000);
 }
 
 // Main loop of the game
@@ -3567,7 +3500,7 @@ void loop()
         // Play game music
         if((eventCounter % 8) == 0 && phase < 6)
         {
-          tone(audio,soundtrack[soundCounter],50);
+          tone(BUZZER_PIN,soundtrack[soundCounter],50, BUZZER_CHANNEL);
           soundCounter++;
           if(soundCounter > 127)
           {
@@ -3577,7 +3510,7 @@ void loop()
         // Play end boss melody
         if((eventCounter % 8) == 0 && phase == 7)
         {
-          tone(audio, bossMelody[soundCounter % 4], 50);
+          tone(BUZZER_PIN, bossMelody[soundCounter % 4], 50, BUZZER_CHANNEL);
           soundCounter++;
           if(soundCounter > 127)
           {
@@ -3590,24 +3523,24 @@ void loop()
         {
           if(scrollCounter % 2 == 0)
           {
-            matrix.setTextColor(matrix.Color333(5,0,0));
+            dma_display->setTextColor(dma_display->color565(182,0,0));
           }
           else
           {
-            matrix.setTextColor(matrix.Color333(0,0,0));
+            dma_display->setTextColor(dma_display->color565(0,0,0));
           }
-          matrix.setCursor(4, 8);
-          matrix.println("BOSS");
-          matrix.setCursor(4, 16);
-          matrix.println("TIME");
-          tone(audio,scrollCounter * 10,10);
+          dma_display->setCursor(36, 8);
+          dma_display->println("BOSS");
+          dma_display->setCursor(36, 16);
+          dma_display->println("TIME");
+          tone(BUZZER_PIN,scrollCounter * 10,10, BUZZER_CHANNEL);
           if(scrollCounter > 127)
           {
-            matrix.setTextColor(matrix.Color333(0,0,0));
-            matrix.setCursor(4, 8);
-            matrix.println("BOSS");
-            matrix.setCursor(4, 16);
-            matrix.println("TIME");
+            dma_display->setTextColor(dma_display->color565(0,0,0));
+            dma_display->setCursor(36, 8);
+            dma_display->println("BOSS");
+            dma_display->setCursor(36, 16);
+            dma_display->println("TIME");
             scrollCounter = 1024;
             soundCounter = 0;
           }
@@ -3620,7 +3553,7 @@ void loop()
         }
         
         // Reset
-        if(digitalRead(buttonReset) == LOW)
+        if((Ps3.event.button_down.select) == HIGH)
         {
           reset = true;
           lives = 0;
@@ -3628,15 +3561,15 @@ void loop()
         }
         
         // Pause
-        if(digitalRead(buttonPause) == LOW)
+        if((Ps3.event.button_down.start) == HIGH)
         {          
-          tone(audio,1024,20);
+          tone(BUZZER_PIN,1024,20, BUZZER_CHANNEL);
           delay(500);
           do
           {
           }
-          while((!digitalRead(buttonPause) == LOW) && !joy1Fire());
-          tone(audio,1024,20);
+          while((!Ps3.event.button_down.select == HIGH) && !joy1Fire());
+          tone(BUZZER_PIN,1024,20, BUZZER_CHANNEL);
           delay(500);
         }
 
@@ -3661,7 +3594,7 @@ void loop()
           shieldEnergy--;
           if(shieldEnergy < 128 && (eventCounter % 4) == 0)
           {
-            tone(audio,512,10);
+            tone(BUZZER_PIN,512,10, BUZZER_CHANNEL);
           }
         }
         
