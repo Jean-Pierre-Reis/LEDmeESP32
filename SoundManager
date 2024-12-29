@@ -1,0 +1,10 @@
+class SoundManager {
+public:
+    void playTone(int frequency, int duration);
+    void playSoundtrack(int* soundtrack, int length);
+    void playBossMelody();
+
+private:
+    int currentToneIndex;
+    // Outros atributos e métodos de som...
+};
